@@ -61,8 +61,11 @@
     activeDatasetId: null
   };
 
+  const appEl = document.getElementById("app");
   const statusEl = document.getElementById("status");
   const titleEl = document.getElementById("title");
+  const topbarToggleButton = document.getElementById("topbar-toggle-button");
+  const topbarOpenButton = document.getElementById("topbar-open-button");
   const reloadButton = document.getElementById("reload-button");
   const taxonLegendEl = document.getElementById("taxon-legend");
   const basemapSelect = document.getElementById("basemap-select");
@@ -82,10 +85,39 @@
   const datasetModalError = document.getElementById("dataset-modal-error");
   const DATASETS_STORAGE_KEY = CONFIG.LOCAL_DATASETS_STORAGE_KEY || "fieldMap.localDatasets.v1";
   const ACTIVE_DATASET_STORAGE_KEY = CONFIG.ACTIVE_DATASET_STORAGE_KEY || "fieldMap.activeDatasetId.v1";
+  const TOPBAR_COLLAPSED_STORAGE_KEY = CONFIG.TOPBAR_COLLAPSED_STORAGE_KEY || "fieldMap.topbarCollapsed.v1";
   titleEl.textContent = CONFIG.TITLE || "調査用地図";
 
   function setStatus(message) {
     statusEl.textContent = message;
+  }
+
+  function resizeMapSoon() {
+    if (!state.map) return;
+    window.requestAnimationFrame(() => {
+      state.map.resize();
+      window.setTimeout(() => {
+        if (state.map) state.map.resize();
+      }, 160);
+    });
+  }
+
+  function setTopbarCollapsed(collapsed, persist = true) {
+    if (!appEl || !topbarOpenButton) return;
+    appEl.classList.toggle("topbar-collapsed", collapsed);
+    topbarOpenButton.hidden = !collapsed;
+    if (topbarToggleButton) {
+      topbarToggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    }
+    topbarOpenButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    if (persist) {
+      window.localStorage.setItem(TOPBAR_COLLAPSED_STORAGE_KEY, collapsed ? "1" : "0");
+    }
+    resizeMapSoon();
+  }
+
+  function loadTopbarCollapsed() {
+    return window.localStorage.getItem(TOPBAR_COLLAPSED_STORAGE_KEY) === "1";
   }
 
   function loadStoredDatasets() {
@@ -1665,6 +1697,14 @@ ${error.message}`);
   }
 
 
+  if (topbarToggleButton) {
+    topbarToggleButton.addEventListener("click", () => setTopbarCollapsed(true));
+  }
+
+  if (topbarOpenButton) {
+    topbarOpenButton.addEventListener("click", () => setTopbarCollapsed(false));
+  }
+
   if (datasetForm) {
     datasetForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1706,6 +1746,7 @@ ${error.message}`);
 
   setupPopupClose();
   initializeDatasetState();
+  setTopbarCollapsed(loadTopbarCollapsed(), false);
   initMap();
   state.map.on("load", () => {
     reloadData();

@@ -15,6 +15,10 @@ body,
   grid-template-rows: auto 1fr;
 }
 
+#app.topbar-collapsed {
+  grid-template-rows: 1fr;
+}
+
 #topbar {
   z-index: 10;
   display: flex;
@@ -36,6 +40,35 @@ body,
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+.topbar-toggle-button,
+.topbar-open-button {
+  min-width: 62px;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #222;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.topbar-toggle-button {
+  flex: 0 0 auto;
+}
+
+.topbar-open-button {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 10px;
+  z-index: 12;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+}
+
+#app.topbar-collapsed #topbar {
+  display: none;
 }
 
 #title {
@@ -67,6 +100,8 @@ body,
 }
 
 #reload-button:active,
+.topbar-toggle-button:active,
+.topbar-open-button:active,
 .record-marker:active,
 .popup-nav-fixed button:active {
   transform: translateY(1px);
