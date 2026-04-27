@@ -10,30 +10,38 @@
 <body>
   <div id="app">
     <header id="topbar">
-      <div class="topbar-main">
-        <div id="title">調査用地図</div>
-        <div id="status">起動中...</div>
+      <div class="topbar-head">
+        <div class="topbar-main">
+          <div id="title">調査用地図</div>
+          <div id="status">起動中...</div>
+        </div>
+        <button id="topbar-toggle-button" class="topbar-toggle-button" type="button" aria-label="上部パネルを閉じる" title="上部パネルを閉じる">×</button>
       </div>
-      <button id="topbar-toggle-button" class="topbar-toggle-button" type="button" aria-label="上部パネルを閉じる">閉じる</button>
       <div class="topbar-actions">
-        <label class="dataset-control" for="dataset-select">
-          <span>調査名</span>
-          <select id="dataset-select" aria-label="調査名"></select>
-        </label>
-        <button id="dataset-add-button" type="button">追加</button>
-        <button id="dataset-edit-button" type="button">編集</button>
-        <button id="dataset-delete-button" type="button">削除</button>
-        <label class="basemap-control" for="basemap-select">
-          <span>背景</span>
-          <select id="basemap-select" aria-label="背景地図">
-            <option value="detail">航空写真</option>
-            <option value="pale">淡色地図</option>
-          </select>
-        </label>
-        <button id="reload-button" type="button">更新</button>
+        <div class="control-row dataset-row">
+          <label class="dataset-control" for="dataset-select">
+            <span>調査名</span>
+            <select id="dataset-select" aria-label="調査名"></select>
+          </label>
+          <div class="dataset-button-group" aria-label="調査名の操作">
+            <button id="dataset-add-button" type="button">追加</button>
+            <button id="dataset-edit-button" type="button">編集</button>
+            <button id="dataset-delete-button" type="button">削除</button>
+          </div>
+        </div>
+        <div class="control-row map-row">
+          <label class="basemap-control" for="basemap-select">
+            <span>背景</span>
+            <select id="basemap-select" aria-label="背景地図">
+              <option value="detail">航空写真</option>
+              <option value="pale">淡色地図</option>
+            </select>
+          </label>
+          <button id="reload-button" type="button">更新</button>
+        </div>
       </div>
     </header>
-    <button id="topbar-open-button" class="topbar-open-button" type="button" hidden>メニュー</button>
+    <button id="topbar-open-button" class="topbar-open-button" type="button" aria-label="上部パネルを開く" title="上部パネルを開く" hidden>☰</button>
 
     <main id="map"></main>
 

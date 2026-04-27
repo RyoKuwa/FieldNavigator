@@ -1301,34 +1301,66 @@ ${error.message}`);
   function createMarkerElement(group) {
     const record = group.representative;
     const kind = recordKind(record.recordType);
-    const taxaForMarker = getTaxaForMarker(group.records);
-    const colors = taxaForMarker.map((taxon) => colorForTaxon(taxon));
+    const segments = getMarkerSegments(group.records);
     const wrapper = document.createElement("button");
     wrapper.type = "button";
-    wrapper.className = `record-marker kind-${kind}${taxaForMarker.length > 1 ? " multi-taxon" : ""}`;
+    wrapper.className = `record-marker kind-${kind}${segments.length > 1 ? " multi-taxon" : ""}`;
     wrapper.setAttribute("aria-label", `${record.taxon || "記録"} ${record.recordType || ""}`.trim());
-    wrapper.innerHTML = markerSvg(kind, colors);
-
+    wrapper.innerHTML = markerSvg(kind, segments);
 
     return wrapper;
   }
 
-  function getTaxaForMarker(records) {
-    const taxa = [];
+  function getMarkerSegments(records) {
+    const byTaxon = new Map();
+
     records.forEach((record) => {
       const key = taxonKey(record.taxon);
-      if (!taxa.includes(key)) taxa.push(key);
+      if (!byTaxon.has(key)) {
+        byTaxon.set(key, []);
+      }
+      byTaxon.get(key).push(record);
     });
-    return taxa;
+
+    return [...byTaxon.entries()]
+      .map(([taxon, taxonRecords]) => {
+        const sortedRecords = [...taxonRecords].sort(compareRecordsForRepresentative);
+        const representative = sortedRecords[0];
+        return {
+          taxon,
+          color: colorForTaxon(taxon),
+          kind: recordKind(representative.recordType),
+          representative
+        };
+      })
+      .sort((a, b) => compareRecordsForRepresentative(a.representative, b.representative));
   }
 
-  function markerSvg(kind, colorsOrColor) {
-    const colors = Array.isArray(colorsOrColor) ? colorsOrColor : [colorsOrColor];
-    const normalizedColors = colors.filter(Boolean);
-    if (normalizedColors.length <= 1) {
-      return singleColorMarkerSvg(kind, normalizedColors[0] || "#666666");
+  function markerSvg(kind, segmentsOrColor) {
+    const segments = normalizeMarkerSegments(segmentsOrColor);
+    if (segments.length <= 1) {
+      const segment = segments[0] || { color: "#666666", kind };
+      return singleColorMarkerSvg(segment.kind || kind, segment.color || "#666666");
     }
-    return splitColorMarkerSvg(kind, normalizedColors);
+    return splitColorMarkerSvg(kind, segments);
+  }
+
+  function normalizeMarkerSegments(value) {
+    if (!Array.isArray(value)) {
+      return [{ color: value || "#666666", kind: "other" }];
+    }
+
+    return value.map((item) => {
+      if (typeof item === "string") {
+        return { color: item || "#666666", kind: "other" };
+      }
+      return {
+        color: item?.color || "#666666",
+        kind: item?.kind || "other",
+        taxon: item?.taxon || "",
+        representative: item?.representative || null
+      };
+    }).filter((item) => item.color);
   }
 
   function singleColorMarkerSvg(kind, color) {
@@ -1368,18 +1400,25 @@ ${error.message}`);
       </svg>`;
   }
 
-  function splitColorMarkerSvg(kind, colors) {
+  function splitColorMarkerSvg(kind, segments) {
     const clipId = `markerClip_${Math.random().toString(36).slice(2)}`;
+    const innerClipId = `markerInnerClip_${Math.random().toString(36).slice(2)}`;
     const stroke = "rgba(0,0,0,0.82)";
     const innerWhite = "rgba(255,255,255,0.96)";
-    const slices = splitColorSlices(colors, clipId);
+    const segmentList = normalizeMarkerSegments(segments);
+    const slices = radialColorSlices(segmentList, clipId);
+    const hollowSlices = radialHollowSlices(segmentList, innerClipId, innerWhite);
 
     if (kind === "type") {
       const starPoints = "12,1.6 14.8,8.4 22.1,8.9 16.5,13.6 18.2,20.8 12,17 5.8,20.8 7.5,13.6 1.9,8.9 9.2,8.4";
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-          <defs><clipPath id="${clipId}"><polygon points="${starPoints}" /></clipPath></defs>
+          <defs>
+            <clipPath id="${clipId}"><polygon points="${starPoints}" /></clipPath>
+            <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="5.6" /></clipPath>
+          </defs>
           ${slices}
+          ${hollowSlices}
           <polygon points="${starPoints}" fill="none" stroke="${stroke}" stroke-width="1.8" />
         </svg>`;
     }
@@ -1387,8 +1426,12 @@ ${error.message}`);
     if (kind === "synonymType") {
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-          <defs><clipPath id="${clipId}"><rect x="5" y="5" width="14" height="14" rx="1.8" /></clipPath></defs>
+          <defs>
+            <clipPath id="${clipId}"><rect x="5" y="5" width="14" height="14" rx="1.8" /></clipPath>
+            <clipPath id="${innerClipId}"><rect x="8" y="8" width="8" height="8" rx="1.1" /></clipPath>
+          </defs>
           ${slices}
+          ${hollowSlices}
           <rect x="5" y="5" width="14" height="14" rx="1.8" fill="none" stroke="${stroke}" stroke-width="1.9" />
         </svg>`;
     }
@@ -1396,33 +1439,62 @@ ${error.message}`);
     if (kind === "literature") {
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-          <defs><clipPath id="${clipId}"><circle cx="12" cy="12" r="9.2" /></clipPath></defs>
+          <defs>
+            <clipPath id="${clipId}"><circle cx="12" cy="12" r="9.2" /></clipPath>
+            <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="5.5" /></clipPath>
+          </defs>
           ${slices}
-          <circle cx="12" cy="12" r="5.5" fill="${innerWhite}" stroke="${stroke}" stroke-width="0.8" />
+          ${radialHollowSlices(segmentList.map((segment) => ({ ...segment, kind: "literature" })), innerClipId, innerWhite)}
+          <circle cx="12" cy="12" r="5.5" fill="none" stroke="${stroke}" stroke-width="0.8" />
           <circle cx="12" cy="12" r="9.2" fill="none" stroke="${stroke}" stroke-width="1.1" />
         </svg>`;
     }
 
     return `
       <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-        <defs><clipPath id="${clipId}"><circle cx="12" cy="12" r="8.2" /></clipPath></defs>
+        <defs>
+          <clipPath id="${clipId}"><circle cx="12" cy="12" r="8.2" /></clipPath>
+          <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="4.9" /></clipPath>
+        </defs>
         ${slices}
+        ${hollowSlices}
+        <circle cx="12" cy="12" r="4.9" fill="none" stroke="rgba(0,0,0,0.22)" stroke-width="0.45" />
         <circle cx="12" cy="12" r="8.2" fill="none" stroke="${stroke}" stroke-width="1.9" />
       </svg>`;
   }
 
-  function splitColorSlices(colors, clipId) {
-    return radialColorSlices(colors, clipId);
+  function isHollowMarkerSegment(kind) {
+    return kind === "literature";
   }
 
-  function radialColorSlices(colors, clipId) {
+  function radialColorSlices(segments, clipId) {
+    const paths = radialSlicePaths(segments.length);
+    const slices = segments.map((segment, index) => {
+      return `<path d="${paths[index]}" fill="${segment.color}" clip-path="url(#${clipId})" />`;
+    });
+
+    const separators = radialSeparators(segments.length, clipId);
+    return slices.concat(separators).join("");
+  }
+
+  function radialHollowSlices(segments, innerClipId, fillColor) {
+    const paths = radialSlicePaths(segments.length);
+    return segments.map((segment, index) => {
+      if (!isHollowMarkerSegment(segment.kind)) {
+        return "";
+      }
+      return `<path d="${paths[index]}" fill="${fillColor}" clip-path="url(#${innerClipId})" />`;
+    }).join("");
+  }
+
+  function radialSlicePaths(segmentCount) {
     const centerX = 12;
     const centerY = 12;
     const radius = 19;
-    const segmentAngle = (Math.PI * 2) / colors.length;
+    const segmentAngle = (Math.PI * 2) / segmentCount;
     const startOffset = -Math.PI / 2;
 
-    const slices = colors.map((color, index) => {
+    return Array.from({ length: segmentCount }, (_, index) => {
       const startAngle = startOffset + index * segmentAngle;
       const endAngle = startOffset + (index + 1) * segmentAngle;
       const x1 = centerX + radius * Math.cos(startAngle);
@@ -1430,25 +1502,32 @@ ${error.message}`);
       const x2 = centerX + radius * Math.cos(endAngle);
       const y2 = centerY + radius * Math.sin(endAngle);
       const largeArc = segmentAngle > Math.PI ? 1 : 0;
-      const path = [
+      return [
         `M ${centerX} ${centerY}`,
         `L ${x1.toFixed(3)} ${y1.toFixed(3)}`,
         `A ${radius} ${radius} 0 ${largeArc} 1 ${x2.toFixed(3)} ${y2.toFixed(3)}`,
         "Z"
       ].join(" ");
-      return `<path d="${path}" fill="${color}" clip-path="url(#${clipId})" />`;
     });
+  }
 
-    const separators = colors.length > 1
-      ? colors.map((_, index) => {
-          const angle = startOffset + index * segmentAngle;
-          const x = centerX + radius * Math.cos(angle);
-          const y = centerY + radius * Math.sin(angle);
-          return `<line x1="${centerX}" y1="${centerY}" x2="${x.toFixed(3)}" y2="${y.toFixed(3)}" stroke="rgba(255,255,255,0.86)" stroke-width="0.65" clip-path="url(#${clipId})" />`;
-        })
-      : [];
+  function radialSeparators(segmentCount, clipId) {
+    if (segmentCount <= 1) {
+      return [];
+    }
 
-    return slices.concat(separators).join("");
+    const centerX = 12;
+    const centerY = 12;
+    const radius = 19;
+    const segmentAngle = (Math.PI * 2) / segmentCount;
+    const startOffset = -Math.PI / 2;
+
+    return Array.from({ length: segmentCount }, (_, index) => {
+      const angle = startOffset + index * segmentAngle;
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      return `<line x1="${centerX}" y1="${centerY}" x2="${x.toFixed(3)}" y2="${y.toFixed(3)}" stroke="rgba(255,255,255,0.86)" stroke-width="0.65" clip-path="url(#${clipId})" />`;
+    });
   }
 
   function createPopupContent(record) {
@@ -1610,7 +1689,7 @@ ${error.message}`);
       focusAfterOpen: false,
       closeOnClick: false,
       anchor,
-      offset: 16,
+      offset: 0,
       maxWidth: "min(360px, calc(100vw - 28px))"
     })
       .setLngLat([record.longitude, record.latitude])
