@@ -82,7 +82,7 @@
   const datasetModalError = document.getElementById("dataset-modal-error");
   const DATASETS_STORAGE_KEY = CONFIG.LOCAL_DATASETS_STORAGE_KEY || "fieldMap.localDatasets.v1";
   const ACTIVE_DATASET_STORAGE_KEY = CONFIG.ACTIVE_DATASET_STORAGE_KEY || "fieldMap.activeDatasetId.v1";
-  titleEl.textContent = CONFIG.TITLE || "現地確認地図";
+  titleEl.textContent = CONFIG.TITLE || "調査用地図";
 
   function setStatus(message) {
     statusEl.textContent = message;
