@@ -18,27 +18,34 @@
         <button id="topbar-toggle-button" class="topbar-toggle-button" type="button" aria-label="メニューを閉じる" title="メニューを閉じる">×</button>
       </div>
       <div class="topbar-actions">
-        <div class="control-row dataset-row">
-          <label class="dataset-control" for="dataset-select">
-            <span>調査名</span>
-            <select id="dataset-select" aria-label="調査名"></select>
-          </label>
-          <div class="dataset-button-group" aria-label="調査名の操作">
-            <button id="dataset-add-button" type="button">追加</button>
-            <button id="dataset-edit-button" type="button">編集</button>
-            <button id="dataset-delete-button" type="button">削除</button>
+        <section class="menu-section dataset-section" aria-labelledby="dataset-section-title">
+          <div id="dataset-section-title" class="menu-section-title">調査データ</div>
+          <div class="control-row dataset-row">
+            <label class="dataset-control" for="dataset-select">
+              <span>調査名</span>
+              <select id="dataset-select" aria-label="調査名"></select>
+            </label>
+            <div class="dataset-button-group" aria-label="調査データの操作">
+              <button id="dataset-add-button" type="button">追加</button>
+              <button id="dataset-edit-button" type="button">編集</button>
+              <button id="dataset-delete-button" type="button">削除</button>
+              <button id="dataset-share-button" type="button">共有</button>
+            </div>
           </div>
-        </div>
-        <div class="control-row map-row">
-          <label class="basemap-control" for="basemap-select">
-            <span>背景</span>
-            <select id="basemap-select" aria-label="背景地図">
-              <option value="detail">航空写真</option>
-              <option value="pale">淡色地図</option>
-            </select>
-          </label>
-          <button id="reload-button" type="button">更新</button>
-        </div>
+        </section>
+        <section class="menu-section map-section" aria-labelledby="map-section-title">
+          <div id="map-section-title" class="menu-section-title">地図表示</div>
+          <div class="control-row map-row">
+            <label class="basemap-control" for="basemap-select">
+              <span>背景地図</span>
+              <select id="basemap-select" aria-label="背景地図">
+                <option value="detail">航空写真</option>
+                <option value="pale">淡色地図</option>
+              </select>
+            </label>
+            <button id="reload-button" type="button">更新</button>
+          </div>
+        </section>
       </div>
     </header>
     <button id="topbar-open-button" class="topbar-open-button" type="button" aria-label="メニューを開く" title="メニューを開く" hidden>☰</button>
@@ -119,6 +126,32 @@
             <button id="dataset-modal-submit" type="submit" class="primary-button">登録</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div id="share-modal" class="modal-overlay" hidden>
+      <div class="modal-panel share-modal-panel" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
+        <div class="modal-header">
+          <h2 id="share-modal-title">調査を共有</h2>
+          <button id="share-modal-close" class="modal-close-button" type="button" aria-label="閉じる">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="share-description share-warning">
+            <p><strong>注意：</strong></p>
+            <p>スプレッドシートがリンクを知っている人に閲覧可能、またはCSVとしてウェブに公開されている必要があります。</p>
+            <p>リンクを受け取った人は、記録の位置情報と各項目を閲覧できます。</p>
+            <p>希少種、未公開データを含む場合は、共有範囲に注意してください。</p>
+          </div>
+          <label class="modal-field" for="share-url-output">
+            <span>共有</span>
+            <textarea id="share-url-output" rows="5" readonly spellcheck="false"></textarea>
+          </label>
+          <div id="share-modal-message" class="share-modal-message" role="status" aria-live="polite"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="share-modal-cancel" type="button" class="secondary-button">閉じる</button>
+          <button id="share-copy-button" type="button" class="primary-button">コピー</button>
+        </div>
       </div>
     </div>
   </div>

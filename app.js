@@ -58,7 +58,8 @@
     hasLoadedOnce: false,
     taxonColors: new Map(),
     datasets: [],
-    activeDatasetId: null
+    activeDatasetId: null,
+    sharedDatasetIdFromUrl: null
   };
 
   const appEl = document.getElementById("app");
@@ -73,6 +74,13 @@
   const datasetAddButton = document.getElementById("dataset-add-button");
   const datasetEditButton = document.getElementById("dataset-edit-button");
   const datasetDeleteButton = document.getElementById("dataset-delete-button");
+  const datasetShareButton = document.getElementById("dataset-share-button");
+  const shareModal = document.getElementById("share-modal");
+  const shareModalCloseButton = document.getElementById("share-modal-close");
+  const shareModalCancelButton = document.getElementById("share-modal-cancel");
+  const shareCopyButton = document.getElementById("share-copy-button");
+  const shareUrlOutput = document.getElementById("share-url-output");
+  const shareModalMessage = document.getElementById("share-modal-message");
   const datasetModal = document.getElementById("dataset-modal");
   const datasetForm = document.getElementById("dataset-form");
   const datasetModalTitle = document.getElementById("dataset-modal-title");
@@ -157,6 +165,46 @@
     } else {
       window.localStorage.removeItem(ACTIVE_DATASET_STORAGE_KEY);
     }
+  }
+
+  function datasetIdentityKey(dataset) {
+    if (!dataset) return "";
+    const sheetName = normalizeText(dataset.sheetName) || CONFIG.DEFAULT_SHEET_NAME || "シート1";
+    if (dataset.spreadsheetId) {
+      return `sheet:${normalizeText(dataset.spreadsheetId)}:${sheetName}`;
+    }
+    if (dataset.csvUrl) {
+      return `csv:${normalizeText(dataset.csvUrl)}`;
+    }
+    return "";
+  }
+
+  function findDatasetByIdentity(dataset) {
+    const key = datasetIdentityKey(dataset);
+    if (!key) return null;
+    return state.datasets.find((existing) => datasetIdentityKey(existing) === key) || null;
+  }
+
+  function datasetFromShareParams() {
+    const params = new URLSearchParams(window.location.search);
+    const name = normalizeText(params.get("fm_name"));
+    const spreadsheetId = normalizeText(params.get("fm_sheet_id"));
+    const sheetName = normalizeText(params.get("fm_sheet")) || CONFIG.DEFAULT_SHEET_NAME || "シート1";
+    const csvUrl = normalizeText(params.get("fm_csv"));
+    if (!name || (!spreadsheetId && !csvUrl)) return null;
+    const sourceUrl = spreadsheetId
+      ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
+      : csvUrl;
+    return {
+      id: "shared-" + hashString([name, spreadsheetId, sheetName, csvUrl].join("|")).toString(36),
+      name,
+      sourceUrl,
+      spreadsheetId,
+      sheetName,
+      csvUrl,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
   }
 
   function getActiveDataset() {
@@ -291,6 +339,7 @@
       if (reloadButton) reloadButton.disabled = true;
       if (datasetEditButton) datasetEditButton.disabled = true;
       if (datasetDeleteButton) datasetDeleteButton.disabled = true;
+      if (datasetShareButton) datasetShareButton.disabled = true;
       return;
     }
 
@@ -306,6 +355,7 @@
     if (reloadButton) reloadButton.disabled = false;
     if (datasetEditButton) datasetEditButton.disabled = false;
     if (datasetDeleteButton) datasetDeleteButton.disabled = false;
+    if (datasetShareButton) datasetShareButton.disabled = false;
   }
 
   function resetMapDataForDatasetChange() {
@@ -360,12 +410,82 @@
 
   function initializeDatasetState() {
     state.datasets = loadStoredDatasets();
-    const storedActiveId = loadActiveDatasetId();
-    state.activeDatasetId = state.datasets.some((dataset) => dataset.id === storedActiveId)
-      ? storedActiveId
-      : (state.datasets[0]?.id || "");
-    saveActiveDatasetId(state.activeDatasetId);
+
+    const sharedDataset = datasetFromShareParams();
+    if (sharedDataset) {
+      const existing = findDatasetByIdentity(sharedDataset);
+      if (existing) {
+        state.activeDatasetId = existing.id;
+      } else {
+        state.datasets.push(sharedDataset);
+        state.activeDatasetId = sharedDataset.id;
+        saveStoredDatasets();
+      }
+      saveActiveDatasetId(state.activeDatasetId);
+    } else {
+      const storedActiveId = loadActiveDatasetId();
+      state.activeDatasetId = state.datasets.some((dataset) => dataset.id === storedActiveId)
+        ? storedActiveId
+        : (state.datasets[0]?.id || "");
+      saveActiveDatasetId(state.activeDatasetId);
+    }
+
     renderDatasetControls();
+  }
+
+  function currentShareUrl() {
+    const dataset = getActiveDataset();
+    if (!dataset) return "";
+
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.hash = "";
+    url.searchParams.set("fm_name", dataset.name);
+    url.searchParams.set("fm_sheet", dataset.sheetName || CONFIG.DEFAULT_SHEET_NAME || "シート1");
+
+    if (dataset.spreadsheetId) {
+      url.searchParams.set("fm_sheet_id", dataset.spreadsheetId);
+    } else if (dataset.csvUrl) {
+      url.searchParams.set("fm_csv", dataset.csvUrl);
+    }
+
+    const baseMap = basemapSelect?.value || CONFIG.INITIAL_BASEMAP || "detail";
+    url.searchParams.set("fm_base", baseMap === "pale" ? "pale" : "detail");
+
+    return url.toString();
+  }
+
+  function openShareModal() {
+    const dataset = getActiveDataset();
+    if (!dataset || !shareModal || !shareUrlOutput) return;
+    shareUrlOutput.value = currentShareUrl();
+    if (shareModalMessage) shareModalMessage.textContent = "";
+    shareModal.hidden = false;
+    document.body.classList.add("modal-open");
+    window.setTimeout(() => {
+      shareUrlOutput.focus();
+      shareUrlOutput.select();
+    }, 0);
+  }
+
+  function closeShareModal() {
+    if (!shareModal) return;
+    shareModal.hidden = true;
+    document.body.classList.remove("modal-open");
+    if (shareModalMessage) shareModalMessage.textContent = "";
+  }
+
+  async function copyShareUrl() {
+    const value = shareUrlOutput?.value || currentShareUrl();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      if (shareModalMessage) shareModalMessage.textContent = "共有リンクをコピーしました。";
+    } catch (error) {
+      shareUrlOutput?.focus();
+      shareUrlOutput?.select();
+      if (shareModalMessage) shareModalMessage.textContent = "コピーできませんでした。共有リンクを選択してコピーしてください。";
+    }
   }
 
   function escapeHtml(value) {
@@ -943,7 +1063,9 @@
     }), "top-right");
 
     if (basemapSelect) {
-      basemapSelect.value = CONFIG.INITIAL_BASEMAP === "pale" ? "pale" : "detail";
+      const sharedBaseMap = new URLSearchParams(window.location.search).get("fm_base");
+      basemapSelect.value = sharedBaseMap === "pale" ? "pale" : (CONFIG.INITIAL_BASEMAP === "pale" ? "pale" : "detail");
+      setBaseMap(basemapSelect.value);
       basemapSelect.addEventListener("change", () => {
         setBaseMap(basemapSelect.value);
       });
@@ -1803,6 +1925,9 @@ ${error.message}`);
     if (event.key === "Escape" && datasetModal && !datasetModal.hidden) {
       closeDatasetModal(null);
     }
+    if (event.key === "Escape" && shareModal && !shareModal.hidden) {
+      closeShareModal();
+    }
   });
 
   if (datasetSelect) {
@@ -1817,6 +1942,15 @@ ${error.message}`);
   if (datasetAddButton) datasetAddButton.addEventListener("click", addDataset);
   if (datasetEditButton) datasetEditButton.addEventListener("click", editDataset);
   if (datasetDeleteButton) datasetDeleteButton.addEventListener("click", deleteDataset);
+  if (datasetShareButton) datasetShareButton.addEventListener("click", openShareModal);
+  if (shareModalCloseButton) shareModalCloseButton.addEventListener("click", closeShareModal);
+  if (shareModalCancelButton) shareModalCancelButton.addEventListener("click", closeShareModal);
+  if (shareCopyButton) shareCopyButton.addEventListener("click", copyShareUrl);
+  if (shareModal) {
+    shareModal.addEventListener("click", (event) => {
+      if (event.target === shareModal) closeShareModal();
+    });
+  }
 
   reloadButton.addEventListener("click", () => {
     reloadData();
