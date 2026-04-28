@@ -30,6 +30,7 @@
               <button id="dataset-edit-button" type="button">編集</button>
               <button id="dataset-delete-button" type="button">削除</button>
               <button id="dataset-share-button" type="button">共有</button>
+              <button id="dataset-register-button" type="button">登録</button>
             </div>
           </div>
         </section>
@@ -44,6 +45,12 @@
               </select>
             </label>
             <button id="reload-button" type="button">更新</button>
+          </div>
+        </section>
+        <section class="menu-section help-section" aria-labelledby="help-section-title">
+          <div id="help-section-title" class="menu-section-title">ヘルプ</div>
+          <div class="control-row help-row">
+            <button id="help-button" type="button">使い方</button>
           </div>
         </section>
       </div>
@@ -78,28 +85,7 @@
           </div>
 
           <div class="modal-body">
-            <details class="modal-help" open>
-              <summary>このページについて</summary>
-              <div class="modal-help-content">
-                <p>このページは、Googleスプレッドシートにまとめた調査記録を地図上に表示し、スマホで現在地と既存記録を見比べるための調査用地図です。</p>
-                <p>調査ごとにスプレッドシートURLを登録しておくと、上部の調査名プルダウンから切り替えて表示できます。</p>
-              </div>
-            </details>
-
-            <details class="modal-help" open>
-              <summary>スプレッドシートの準備</summary>
-              <div class="modal-help-content">
-                <p>1行目にヘッダーを書いてください。必須ヘッダーは <code>記録ID</code>, <code>同定</code>, <code>記録の種類</code>, <code>Latitude</code>, <code>Longitude</code> です。</p>
-                <p>推奨ヘッダーは次の通りです。</p>
-                <code class="header-example">記録ID, 同定, 記録の種類, 所蔵, 標本ID, 場所, Latitude, Longitude, 年, 月, 日, 表示する日付, 備考</code>
-                <ul>
-                  <li><code>Latitude</code> と <code>Longitude</code> は10進数で入力してください。</li>
-                  <li><code>記録の種類</code> は、<code>タイプ産地</code>、<code>シノニマイズされた種のタイプ産地</code>、<code>文献記録</code>、<code>本調査</code> のいずれかを入力してください。</li>
-                  <li><code>表示する日付</code> は、ポップアップに表示する日付文字列です。例：<code>19 Jun. 1985</code>、<code>15–16 Apr. 1987</code>、<code>Jun. 1985</code>、<code>1985</code></li>
-                  <li>ブラウザから読み込めるよう、スプレッドシートはリンクを知っている人が閲覧できる状態、またはCSVとしてウェブに公開された状態にしてください。</li>
-                </ul>
-              </div>
-            </details>
+            <p class="modal-note">スプレッドシートの準備や必要な列については、メニューの「使い方」を確認してください。</p>
 
             <label class="modal-field" for="dataset-name-input">
               <span>調査名</span>
@@ -129,10 +115,77 @@
       </div>
     </div>
 
+    <div id="register-modal" class="modal-overlay" hidden>
+      <div class="modal-panel register-modal-panel" role="dialog" aria-modal="true" aria-labelledby="register-modal-title">
+        <div class="modal-header">
+          <h2 id="register-modal-title">調査を登録</h2>
+          <button id="register-modal-close" class="modal-close-button" type="button" aria-label="閉じる">×</button>
+        </div>
+        <div class="modal-body">
+          <p>この調査を登録しますか？</p>
+          <p>登録すると、この端末の調査一覧に追加され、次回から調査名プルダウンで選択できます。</p>
+          <p>スプレッドシートの記録データそのものは保存されません。</p>
+          <div id="register-modal-error" class="modal-error" role="alert" hidden></div>
+        </div>
+        <div class="modal-actions">
+          <button id="register-modal-cancel" type="button" class="secondary-button">キャンセル</button>
+          <button id="register-confirm-button" type="button" class="primary-button">登録</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="help-modal" class="modal-overlay" hidden>
+      <div class="modal-panel help-modal-panel" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+        <div class="modal-header">
+          <h2 id="help-modal-title">使い方</h2>
+          <button id="help-modal-close" class="modal-close-button" type="button" aria-label="閉じる">×</button>
+        </div>
+        <div class="modal-body help-modal-body">
+          <section class="help-content-section">
+            <h3>このページについて</h3>
+            <p>Googleスプレッドシートにまとめた調査記録を地図上に表示するページです。スマホで現在地と既存記録を見比べるための調査用地図として使います。</p>
+            <p>調査ごとにスプレッドシートURLを登録しておくと、調査名プルダウンから切り替えて表示できます。</p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>基本的な使い方</h3>
+            <ol>
+              <li>Googleスプレッドシートを用意します。</li>
+              <li>1行目にヘッダーを書いてください。</li>
+              <li>スプレッドシートを、リンクを知っている人が閲覧できる状態、またはCSVとしてウェブに公開された状態にします。</li>
+              <li>メニューの「追加」から調査名、スプレッドシートURL、シート名を登録します。</li>
+              <li>調査名を選ぶと、記録が地図上に表示されます。</li>
+            </ol>
+          </section>
+
+          <section class="help-content-section">
+            <h3>共有リンクから開いた調査</h3>
+            <p>共有リンクから開いた調査は、最初は閲覧のみです。この端末の調査一覧に残したい場合は、「登録」を押してください。</p>
+            <p>登録すると、次回から調査名プルダウンで選択できます。スプレッドシートの記録データそのものは保存されません。</p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>必要な列</h3>
+            <p>必須ヘッダーは <code>記録ID</code>, <code>同定</code>, <code>記録の種類</code>, <code>Latitude</code>, <code>Longitude</code> です。</p>
+            <p>推奨ヘッダーは次の通りです。</p>
+            <code class="header-example">記録ID, 同定, 記録の種類, 所蔵, 標本ID, 場所, Latitude, Longitude, 年, 月, 日, 表示する日付, 備考</code>
+            <ul>
+              <li><code>Latitude</code> と <code>Longitude</code> は10進数で入力してください。</li>
+              <li><code>記録の種類</code> は、<code>タイプ産地</code>、<code>シノニマイズされた種のタイプ産地</code>、<code>文献記録</code>、<code>本調査</code> のいずれかを入力してください。</li>
+              <li><code>表示する日付</code> は、ポップアップに表示する日付文字列です。例：<code>19 Jun. 1985</code>、<code>15–16 Apr. 1987</code>、<code>Jun. 1985</code>、<code>1985</code></li>
+            </ul>
+          </section>
+        </div>
+        <div class="modal-actions">
+          <button id="help-modal-cancel" type="button" class="primary-button">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <div id="share-modal" class="modal-overlay" hidden>
       <div class="modal-panel share-modal-panel" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
         <div class="modal-header">
-          <h2 id="share-modal-title">調査を共有</h2>
+          <h2 id="share-modal-title">調査結果を共有</h2>
           <button id="share-modal-close" class="modal-close-button" type="button" aria-label="閉じる">×</button>
         </div>
         <div class="modal-body">
@@ -143,9 +196,13 @@
             <p>希少種、未公開データを含む場合は、共有範囲に注意してください。</p>
           </div>
           <label class="modal-field" for="share-url-output">
-            <span>共有</span>
+            <span>共有リンク</span>
             <textarea id="share-url-output" rows="5" readonly spellcheck="false"></textarea>
           </label>
+          <div class="modal-field share-source-field">
+            <span>スプレッドシート</span>
+            <a id="share-source-link" class="share-source-link" href="#" target="_blank" rel="noopener"></a>
+          </div>
           <div id="share-modal-message" class="share-modal-message" role="status" aria-live="polite"></div>
         </div>
         <div class="modal-actions">

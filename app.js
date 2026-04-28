@@ -58,6 +58,7 @@
     hasLoadedOnce: false,
     taxonColors: new Map(),
     datasets: [],
+    temporaryDataset: null,
     activeDatasetId: null,
     sharedDatasetIdFromUrl: null
   };
@@ -75,12 +76,23 @@
   const datasetEditButton = document.getElementById("dataset-edit-button");
   const datasetDeleteButton = document.getElementById("dataset-delete-button");
   const datasetShareButton = document.getElementById("dataset-share-button");
+  const datasetRegisterButton = document.getElementById("dataset-register-button");
+  const helpButton = document.getElementById("help-button");
+  const helpModal = document.getElementById("help-modal");
+  const helpModalCloseButton = document.getElementById("help-modal-close");
+  const helpModalCancelButton = document.getElementById("help-modal-cancel");
   const shareModal = document.getElementById("share-modal");
   const shareModalCloseButton = document.getElementById("share-modal-close");
   const shareModalCancelButton = document.getElementById("share-modal-cancel");
   const shareCopyButton = document.getElementById("share-copy-button");
   const shareUrlOutput = document.getElementById("share-url-output");
+  const shareSourceLink = document.getElementById("share-source-link");
   const shareModalMessage = document.getElementById("share-modal-message");
+  const registerModal = document.getElementById("register-modal");
+  const registerModalCloseButton = document.getElementById("register-modal-close");
+  const registerModalCancelButton = document.getElementById("register-modal-cancel");
+  const registerConfirmButton = document.getElementById("register-confirm-button");
+  const registerModalError = document.getElementById("register-modal-error");
   const datasetModal = document.getElementById("dataset-modal");
   const datasetForm = document.getElementById("dataset-form");
   const datasetModalTitle = document.getElementById("dataset-modal-title");
@@ -208,7 +220,14 @@
   }
 
   function getActiveDataset() {
-    return state.datasets.find((dataset) => dataset.id === state.activeDatasetId) || null;
+    return state.datasets.find((dataset) => dataset.id === state.activeDatasetId)
+      || (state.temporaryDataset && state.temporaryDataset.id === state.activeDatasetId ? state.temporaryDataset : null)
+      || null;
+  }
+
+  function isDatasetRegistered(dataset = getActiveDataset()) {
+    if (!dataset) return false;
+    return state.datasets.some((stored) => stored.id === dataset.id);
   }
 
   function makeDatasetId(name) {
@@ -323,14 +342,26 @@
   function renderDatasetControls() {
     if (!datasetSelect) return;
 
-    const activeExists = state.datasets.some((dataset) => dataset.id === state.activeDatasetId);
+    const activeDataset = getActiveDataset();
+    const activeExists = !!activeDataset;
+
     if (!activeExists) {
-      state.activeDatasetId = state.datasets[0]?.id || "";
-      saveActiveDatasetId(state.activeDatasetId);
+      state.activeDatasetId = state.datasets[0]?.id || state.temporaryDataset?.id || "";
+      if (state.datasets.some((dataset) => dataset.id === state.activeDatasetId)) {
+        saveActiveDatasetId(state.activeDatasetId);
+      } else {
+        saveActiveDatasetId("");
+      }
     }
 
     datasetSelect.innerHTML = "";
-    if (state.datasets.length === 0) {
+
+    const selectDatasets = [...state.datasets];
+    if (state.temporaryDataset && !selectDatasets.some((dataset) => dataset.id === state.temporaryDataset.id)) {
+      selectDatasets.push(state.temporaryDataset);
+    }
+
+    if (selectDatasets.length === 0) {
       const option = document.createElement("option");
       option.value = "";
       option.textContent = "未登録";
@@ -340,22 +371,49 @@
       if (datasetEditButton) datasetEditButton.disabled = true;
       if (datasetDeleteButton) datasetDeleteButton.disabled = true;
       if (datasetShareButton) datasetShareButton.disabled = true;
+      if (datasetRegisterButton) {
+        datasetRegisterButton.classList.remove("is-registered", "is-registerable", "is-inactive");
+        datasetRegisterButton.textContent = "登録";
+        datasetRegisterButton.disabled = true;
+        datasetRegisterButton.classList.add("is-inactive");
+      }
       return;
     }
 
-    state.datasets.forEach((dataset) => {
+    selectDatasets.forEach((dataset) => {
       const option = document.createElement("option");
       option.value = dataset.id;
-      option.textContent = dataset.name;
+      option.textContent = isDatasetRegistered(dataset) ? dataset.name : dataset.name + "（未登録）";
       datasetSelect.appendChild(option);
     });
 
+    const current = getActiveDataset();
     datasetSelect.value = state.activeDatasetId;
     datasetSelect.disabled = false;
-    if (reloadButton) reloadButton.disabled = false;
-    if (datasetEditButton) datasetEditButton.disabled = false;
-    if (datasetDeleteButton) datasetDeleteButton.disabled = false;
-    if (datasetShareButton) datasetShareButton.disabled = false;
+
+    const registered = current ? isDatasetRegistered(current) : false;
+    const hasActive = !!current;
+
+    if (reloadButton) reloadButton.disabled = !hasActive;
+    if (datasetEditButton) datasetEditButton.disabled = !registered;
+    if (datasetDeleteButton) datasetDeleteButton.disabled = !registered;
+    if (datasetShareButton) datasetShareButton.disabled = !hasActive;
+    if (datasetRegisterButton) {
+      datasetRegisterButton.classList.remove("is-registered", "is-registerable", "is-inactive");
+      if (!hasActive) {
+        datasetRegisterButton.textContent = "登録";
+        datasetRegisterButton.disabled = true;
+        datasetRegisterButton.classList.add("is-inactive");
+      } else if (registered) {
+        datasetRegisterButton.textContent = "登録済み";
+        datasetRegisterButton.disabled = true;
+        datasetRegisterButton.classList.add("is-registered");
+      } else {
+        datasetRegisterButton.textContent = "登録";
+        datasetRegisterButton.disabled = false;
+        datasetRegisterButton.classList.add("is-registerable");
+      }
+    }
   }
 
   function resetMapDataForDatasetChange() {
@@ -410,18 +468,20 @@
 
   function initializeDatasetState() {
     state.datasets = loadStoredDatasets();
+    state.temporaryDataset = null;
 
     const sharedDataset = datasetFromShareParams();
     if (sharedDataset) {
       const existing = findDatasetByIdentity(sharedDataset);
       if (existing) {
         state.activeDatasetId = existing.id;
+        saveActiveDatasetId(state.activeDatasetId);
       } else {
-        state.datasets.push(sharedDataset);
+        state.temporaryDataset = sharedDataset;
         state.activeDatasetId = sharedDataset.id;
-        saveStoredDatasets();
+        saveActiveDatasetId("");
       }
-      saveActiveDatasetId(state.activeDatasetId);
+      state.sharedDatasetIdFromUrl = sharedDataset.id;
     } else {
       const storedActiveId = loadActiveDatasetId();
       state.activeDatasetId = state.datasets.some((dataset) => dataset.id === storedActiveId)
@@ -431,6 +491,72 @@
     }
 
     renderDatasetControls();
+  }
+
+  function setRegisterModalError(message) {
+    if (!registerModalError) return;
+    const text = normalizeText(message);
+    registerModalError.textContent = text;
+    registerModalError.hidden = !text;
+  }
+
+  function openRegisterModal() {
+    if (!registerModal || !registerConfirmButton) return;
+    const current = getActiveDataset();
+    if (!current || isDatasetRegistered(current)) {
+      renderDatasetControls();
+      return;
+    }
+    setRegisterModalError("");
+    registerModal.hidden = false;
+    document.body.classList.add("modal-open");
+    window.setTimeout(() => registerConfirmButton.focus(), 0);
+  }
+
+  function closeRegisterModal() {
+    if (!registerModal) return;
+    registerModal.hidden = true;
+    document.body.classList.remove("modal-open");
+    setRegisterModalError("");
+  }
+
+  function registerActiveDataset() {
+    const current = getActiveDataset();
+    if (!current || isDatasetRegistered(current)) {
+      renderDatasetControls();
+      closeRegisterModal();
+      return;
+    }
+
+    const existing = findDatasetByIdentity(current);
+    if (existing) {
+      state.activeDatasetId = existing.id;
+      if (state.temporaryDataset && state.temporaryDataset.id === current.id) {
+        state.temporaryDataset = null;
+      }
+      saveActiveDatasetId(existing.id);
+      renderDatasetControls();
+      closeRegisterModal();
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const registeredDataset = {
+      ...current,
+      id: makeDatasetId(current.name),
+      createdAt: now,
+      updatedAt: now
+    };
+
+    state.datasets.push(registeredDataset);
+    state.activeDatasetId = registeredDataset.id;
+    if (state.temporaryDataset && state.temporaryDataset.id === current.id) {
+      state.temporaryDataset = null;
+    }
+    saveStoredDatasets();
+    saveActiveDatasetId(registeredDataset.id);
+    renderDatasetControls();
+    closeRegisterModal();
   }
 
   function currentShareUrl() {
@@ -455,10 +581,44 @@
     return url.toString();
   }
 
+  function currentSourceUrl(dataset) {
+    if (!dataset) return "";
+    if (dataset.sourceUrl) return dataset.sourceUrl;
+    if (dataset.spreadsheetId) return "https://docs.google.com/spreadsheets/d/" + dataset.spreadsheetId + "/edit";
+    if (dataset.csvUrl) return dataset.csvUrl;
+    return "";
+  }
+
+  function openHelpModal() {
+    if (!helpModal) return;
+    helpModal.hidden = false;
+    document.body.classList.add("modal-open");
+    window.setTimeout(() => {
+      helpModalCloseButton?.focus();
+    }, 0);
+  }
+
+  function closeHelpModal() {
+    if (!helpModal) return;
+    helpModal.hidden = true;
+    document.body.classList.remove("modal-open");
+  }
+
   function openShareModal() {
     const dataset = getActiveDataset();
     if (!dataset || !shareModal || !shareUrlOutput) return;
     shareUrlOutput.value = currentShareUrl();
+    const sourceUrl = currentSourceUrl(dataset);
+    if (shareSourceLink) {
+      shareSourceLink.textContent = sourceUrl || "未設定";
+      if (sourceUrl) {
+        shareSourceLink.href = sourceUrl;
+        shareSourceLink.removeAttribute("aria-disabled");
+      } else {
+        shareSourceLink.href = "#";
+        shareSourceLink.setAttribute("aria-disabled", "true");
+      }
+    }
     if (shareModalMessage) shareModalMessage.textContent = "";
     shareModal.hidden = false;
     document.body.classList.add("modal-open");
@@ -1928,12 +2088,23 @@ ${error.message}`);
     if (event.key === "Escape" && shareModal && !shareModal.hidden) {
       closeShareModal();
     }
+    if (event.key === "Escape" && helpModal && !helpModal.hidden) {
+      closeHelpModal();
+    }
+    if (event.key === "Escape" && registerModal && !registerModal.hidden) {
+      closeRegisterModal();
+    }
   });
 
   if (datasetSelect) {
     datasetSelect.addEventListener("change", () => {
       state.activeDatasetId = datasetSelect.value;
-      saveActiveDatasetId(state.activeDatasetId);
+      if (state.datasets.some((dataset) => dataset.id === state.activeDatasetId)) {
+        saveActiveDatasetId(state.activeDatasetId);
+      } else {
+        saveActiveDatasetId("");
+      }
+      renderDatasetControls();
       resetMapDataForDatasetChange();
       reloadData();
     });
@@ -1943,6 +2114,23 @@ ${error.message}`);
   if (datasetEditButton) datasetEditButton.addEventListener("click", editDataset);
   if (datasetDeleteButton) datasetDeleteButton.addEventListener("click", deleteDataset);
   if (datasetShareButton) datasetShareButton.addEventListener("click", openShareModal);
+  if (datasetRegisterButton) datasetRegisterButton.addEventListener("click", openRegisterModal);
+  if (registerModalCloseButton) registerModalCloseButton.addEventListener("click", closeRegisterModal);
+  if (registerModalCancelButton) registerModalCancelButton.addEventListener("click", closeRegisterModal);
+  if (registerConfirmButton) registerConfirmButton.addEventListener("click", registerActiveDataset);
+  if (registerModal) {
+    registerModal.addEventListener("click", (event) => {
+      if (event.target === registerModal) closeRegisterModal();
+    });
+  }
+  if (helpButton) helpButton.addEventListener("click", openHelpModal);
+  if (helpModalCloseButton) helpModalCloseButton.addEventListener("click", closeHelpModal);
+  if (helpModalCancelButton) helpModalCancelButton.addEventListener("click", closeHelpModal);
+  if (helpModal) {
+    helpModal.addEventListener("click", (event) => {
+      if (event.target === helpModal) closeHelpModal();
+    });
+  }
   if (shareModalCloseButton) shareModalCloseButton.addEventListener("click", closeShareModal);
   if (shareModalCancelButton) shareModalCancelButton.addEventListener("click", closeShareModal);
   if (shareCopyButton) shareCopyButton.addEventListener("click", copyShareUrl);

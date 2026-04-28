@@ -1030,6 +1030,30 @@ body.modal-open {
   line-height: 1.45;
 }
 
+.share-source-field {
+  gap: 6px;
+}
+
+.share-source-link {
+  display: block;
+  max-width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #d9dee7;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #0b5cab;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+}
+
+.share-source-link[aria-disabled="true"] {
+  color: #777;
+  text-decoration: none;
+  pointer-events: none;
+}
+
 .share-modal-message {
   min-height: 1.4em;
   color: #155724;
@@ -1370,5 +1394,542 @@ body.modal-open {
 
   #reload-button {
     width: 100%;
+  }
+}
+
+/* Help modal and menu help section */
+.modal-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  background: #f7faff;
+  color: #333;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.help-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  min-width: 0;
+}
+
+#help-button {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  color: #222;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#help-button:active {
+  transform: translateY(1px);
+}
+
+.help-modal-panel {
+  max-width: 680px;
+}
+
+.help-modal-body {
+  display: grid;
+  gap: 14px;
+}
+
+.help-content-section {
+  display: grid;
+  gap: 8px;
+}
+
+.help-content-section h3 {
+  margin: 0;
+  color: #222;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.help-content-section p,
+.help-content-section li {
+  margin: 0;
+  color: #333;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.help-content-section ol,
+.help-content-section ul {
+  margin: 0;
+  padding-left: 1.45em;
+}
+
+.help-content-section code:not(.header-example) {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #f1f5f9;
+}
+
+@media (min-width: 981px) {
+  .topbar-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(230px, 0.42fr) minmax(96px, 0.18fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .help-row {
+    width: 100%;
+  }
+
+  #help-button {
+    width: 100%;
+    padding: 7px 8px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 560px) {
+  #help-button {
+    padding: 7px 7px;
+    font-size: 12px;
+  }
+}
+
+/* Registration button and updated dataset controls */
+#dataset-register-button {
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  color: #222;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#dataset-register-button:active {
+  transform: translateY(1px);
+}
+
+#dataset-register-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 980px) {
+  .dataset-button-group {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  #dataset-register-button {
+    width: 100%;
+    min-width: 0;
+    padding: 7px 8px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .dataset-button-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #dataset-register-button {
+    padding: 7px 7px;
+    font-size: 12px;
+  }
+}
+
+/* Final menu organization refinement */
+#topbar {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.52fr) minmax(0, 1.78fr);
+  grid-template-areas: "head actions";
+  align-items: stretch;
+  gap: 10px 14px;
+  padding: calc(8px + env(safe-area-inset-top)) 58px 9px 12px;
+}
+
+.topbar-head {
+  grid-area: head;
+  align-self: center;
+}
+
+.topbar-actions {
+  grid-area: actions;
+  display: grid;
+  grid-template-columns: minmax(360px, 1.6fr) minmax(210px, 0.72fr) minmax(92px, 0.28fr);
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+}
+
+.menu-section {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 7px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.menu-section-title {
+  color: #3b3b3b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+
+.control-row {
+  min-width: 0;
+}
+
+.dataset-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dataset-control,
+.basemap-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  color: #333;
+  white-space: nowrap;
+}
+
+#dataset-select,
+#basemap-select {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.dataset-button-group {
+  display: grid;
+  grid-template-columns: repeat(5, max-content);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+#dataset-add-button,
+#dataset-edit-button,
+#dataset-delete-button,
+#dataset-share-button,
+#dataset-register-button,
+#reload-button,
+#help-button {
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  color: #222;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+#dataset-register-button.is-registerable {
+  border-color: rgba(0, 94, 184, 0.35);
+  background: #eef6ff;
+  color: #064f91;
+}
+
+#dataset-register-button.is-registered:disabled {
+  border-color: rgba(0, 128, 72, 0.28);
+  background: #eef8f2;
+  color: #26724a;
+  opacity: 1;
+  cursor: default;
+}
+
+#dataset-register-button.is-inactive:disabled,
+#dataset-edit-button:disabled,
+#dataset-delete-button:disabled,
+#dataset-share-button:disabled,
+#reload-button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.map-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.help-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+}
+
+#help-button {
+  width: 100%;
+}
+
+@media (max-width: 1120px) {
+  #topbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "head"
+      "actions";
+    align-items: stretch;
+  }
+
+  .topbar-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 0.56fr) minmax(86px, 0.24fr);
+  }
+
+  .dataset-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .dataset-button-group {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  #dataset-add-button,
+  #dataset-edit-button,
+  #dataset-delete-button,
+  #dataset-share-button,
+  #dataset-register-button {
+    width: 100%;
+    min-width: 0;
+    padding-right: 7px;
+    padding-left: 7px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 760px) {
+  #topbar {
+    padding-right: 54px;
+  }
+
+  .topbar-actions {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .menu-section {
+    padding: 8px;
+  }
+
+  .dataset-button-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .map-row {
+    grid-template-columns: minmax(0, 1fr) minmax(88px, max-content);
+  }
+}
+
+@media (max-width: 480px) {
+  #topbar {
+    gap: 7px;
+    padding-left: 9px;
+    padding-right: 50px;
+  }
+
+  .menu-section {
+    padding: 7px;
+    border-radius: 14px;
+  }
+
+  .dataset-control,
+  .basemap-control {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .dataset-button-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  #dataset-add-button,
+  #dataset-edit-button,
+  #dataset-delete-button,
+  #dataset-share-button,
+  #dataset-register-button,
+  #reload-button,
+  #help-button {
+    min-height: 33px;
+    padding: 6px 7px;
+    font-size: 12px;
+  }
+
+  .map-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .basemap-control span,
+  .dataset-control span {
+    display: inline !important;
+  }
+}
+
+/* Narrow desktop layout refinement */
+@media (max-width: 1120px) and (min-width: 761px) {
+  #topbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "head"
+      "actions";
+  }
+
+  .topbar-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .dataset-row {
+    grid-template-columns: minmax(240px, 1fr) auto;
+    align-items: center;
+  }
+
+  .dataset-button-group {
+    grid-template-columns: repeat(auto-fit, minmax(64px, max-content));
+    justify-content: end;
+    max-width: 100%;
+  }
+
+  #dataset-add-button,
+  #dataset-edit-button,
+  #dataset-delete-button,
+  #dataset-share-button,
+  #dataset-register-button {
+    width: auto;
+    min-width: 64px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .map-row {
+    grid-template-columns: minmax(240px, 1fr) max-content;
+  }
+}
+
+@media (max-width: 900px) and (min-width: 761px) {
+  .dataset-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .dataset-button-group {
+    grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
+    justify-content: stretch;
+  }
+
+  #dataset-add-button,
+  #dataset-edit-button,
+  #dataset-delete-button,
+  #dataset-share-button,
+  #dataset-register-button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* Fix dataset action overflow on narrow desktop widths */
+.dataset-button-group {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
+#dataset-add-button,
+#dataset-edit-button,
+#dataset-delete-button,
+#dataset-share-button,
+#dataset-register-button {
+  flex: 0 1 auto;
+  min-width: 58px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#dataset-register-button {
+  min-width: 72px;
+}
+
+@media (max-width: 1120px) {
+  .dataset-button-group {
+    justify-content: flex-start;
+  }
+
+  #dataset-add-button,
+  #dataset-edit-button,
+  #dataset-delete-button,
+  #dataset-share-button,
+  #dataset-register-button {
+    flex: 1 1 76px;
+    width: auto;
+  }
+}
+
+@media (max-width: 900px) and (min-width: 761px) {
+  .dataset-button-group {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  #dataset-add-button,
+  #dataset-edit-button,
+  #dataset-delete-button,
+  #dataset-share-button,
+  #dataset-register-button {
+    width: 100%;
+    min-width: 0;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+}
+
+@media (max-width: 560px) {
+  .dataset-button-group {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #dataset-add-button,
+  #dataset-edit-button,
+  #dataset-delete-button,
+  #dataset-share-button,
+  #dataset-register-button {
+    width: 100%;
+    min-width: 0;
   }
 }
