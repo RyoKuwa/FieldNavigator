@@ -74,7 +74,7 @@
           <div id="record-type-legend"></div>
         </div>
         <div class="legend-block">
-          <div class="legend-title">分類群</div>
+          <div id="color-legend-title" class="legend-title">色分け</div>
           <div id="taxon-legend"></div>
         </div>
       </details>
@@ -107,6 +107,39 @@
               <input id="dataset-sheet-input" type="text" autocomplete="off" />
               <small>通常は「シート1」です。英語環境で作成した場合は「Sheet1」のことがあります。</small>
             </label>
+
+            <div class="dataset-field-loader">
+              <button id="dataset-load-fields-button" type="button" class="secondary-button compact-button">列を読み込む</button>
+              <small>スプレッドシートの1行目のヘッダーを読み込み、ポップアップ・フィルター・色分けに使う項目を選択します。</small>
+            </div>
+
+            <div id="dataset-fields-status" class="dataset-fields-status" role="status" hidden></div>
+
+            <div id="dataset-field-settings" class="dataset-field-settings" hidden>
+              <label class="modal-field" for="dataset-color-field-select">
+                <span>色分けに使用する項目</span>
+                <select id="dataset-color-field-select"></select>
+                <small>初期状態では未選択です。選択しない場合、マーカーは灰色で表示されます。</small>
+              </label>
+
+              <section class="dataset-fieldset" aria-labelledby="dataset-popup-fields-title">
+                <div id="dataset-popup-fields-title" class="dataset-fieldset-title">ポップアップに表示する項目</div>
+                <small>マーカーをクリックしたときに表示されるポップアップの内容を設定します。</small>
+                <label class="modal-field" for="dataset-popup-title-field-select">
+                  <span>ポップアップタイトルに使用する項目</span>
+                  <select id="dataset-popup-title-field-select"></select>
+                  <small>初期状態では未選択です。選択しない場合、タイトルは表示されません。</small>
+                </label>
+                <small>本文に表示する項目を選択します。タイトル項目でも、本文でチェックされていれば本文にも表示します。↑↓で表示順を変更できます。</small>
+                <div id="dataset-popup-fields-list" class="dataset-field-list"></div>
+              </section>
+
+              <section class="dataset-fieldset" aria-labelledby="dataset-filter-fields-title">
+                <div id="dataset-filter-fields-title" class="dataset-fieldset-title">フィルタリングに使用する項目</div>
+                <small>チェックした列だけをフィルター画面に表示します。</small>
+                <div id="dataset-filter-fields-list" class="dataset-field-list"></div>
+              </section>
+            </div>
 
             <div id="dataset-modal-error" class="modal-error" role="alert" hidden></div>
           </div>
@@ -173,18 +206,20 @@
             <p>スプレッドシートの各項目ごとに、表示する記録を絞り込めます。</p>
             <p>各項目は1列で表示され、検索欄から値を探してチェックの有無を調整できます。列が増減した場合も、読み込んだヘッダーに合わせてフィルター項目が作られます。</p>
             <p>同じ項目内では複数選択ができます。異なる項目を同時に指定した場合は、すべての条件に合う記録だけを表示します。</p>
-            <p>フィルター適用後の記録だけで、分類群の色、近接マーカー、分割表示、凡例を再計算します。</p>
-            <p>分類群の色は現在表示中の記録に基づいて自動で割り当てます。フィルター条件を変更すると、同じ分類群でも色が変わることがあります。</p>
+            <p>フィルター適用後の記録だけで、選択した色分け項目の色、近接マーカー、分割表示、凡例を再計算します。</p>
+            <p>近くの別マーカーは、ポップアップ内の「前へ」「次へ」でも切り替えられます。切り替え時は、吹き出し先も切り替え先の表示マーカー中心へ移動します。</p>
+            <p>色分け項目は調査データの追加・編集画面で選択します。未選択の場合、マーカーは灰色で表示されます。</p>
+            <p>ポップアップタイトルに使用する項目は、色分け項目とは別に選択できます。未選択の場合、ポップアップタイトルは表示されません。</p>
             <p>フィルターは調査ごとにこの端末へ保存されます。</p>
           </section>
 
           <section class="help-content-section">
             <h3>必要な列</h3>
-            <p>必須ヘッダーは <code>記録ID</code>, <code>同定</code>, <code>記録の種類</code>, <code>Latitude</code>, <code>Longitude</code> です。</p>
+            <p>必須ヘッダーは <code>記録ID</code>, <code>分類群</code>, <code>記録の種類</code>, <code>緯度</code>, <code>経度</code> です。</p>
             <p>推奨ヘッダーは次の通りです。</p>
-            <code class="header-example">記録ID, 同定, 記録の種類, 所蔵, 標本ID, 場所, Latitude, Longitude, 年, 月, 日, 表示する日付, 備考</code>
+            <code class="header-example">記録ID, 分類群, 記録の種類, 所蔵, 標本ID, 場所, 緯度, 経度, 年, 月, 日, 表示する日付, 備考</code>
             <ul>
-              <li><code>Latitude</code> と <code>Longitude</code> は10進数で入力してください。</li>
+              <li><code>緯度</code> と <code>経度</code> は10進数で入力してください。</li>
               <li><code>記録の種類</code> は、<code>タイプ産地</code>、<code>シノニマイズされた種のタイプ産地</code>、<code>文献記録</code>、<code>本調査</code> のいずれかを入力してください。</li>
               <li><code>表示する日付</code> は、ポップアップに表示する日付文字列です。例：<code>19 Jun. 1985</code>、<code>15–16 Apr. 1987</code>、<code>Jun. 1985</code>、<code>1985</code></li>
             </ul>

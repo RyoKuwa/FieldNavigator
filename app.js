@@ -11,26 +11,62 @@
     COLUMNS.longitude
   ];
 
+  const LEGACY_TAXON_HEADER = "同定";
+  const LEGACY_LATITUDE_HEADER = "Latitude";
+  const LEGACY_LONGITUDE_HEADER = "Longitude";
+  const REJECTED_TAXON_HEADER = "Taxon";
+  const VIRTUAL_COORDINATES_FIELD = "__coordinates";
+  const DEFAULT_MARKER_COLOR = "#666666";
+  const POPUP_NEARBY_MARKER_PIXELS = Number(CONFIG.POPUP_NEARBY_MARKER_PIXELS) || Number(CONFIG.PROXIMITY_PIXELS) || 10;
+  const POPUP_CLICK_THROUGH_MARKER_PIXELS = Number(CONFIG.POPUP_CLICK_THROUGH_MARKER_PIXELS) || 14;
+
   const FILTER_FIELD_LABEL_OVERRIDES = {
-    [COLUMNS.taxon]: "分類群"
+    [COLUMNS.taxon]: "分類群",
+    [LEGACY_TAXON_HEADER]: "分類群",
+    [COLUMNS.latitude]: "緯度",
+    [LEGACY_LATITUDE_HEADER]: "緯度",
+    [COLUMNS.longitude]: "経度",
+    [LEGACY_LONGITUDE_HEADER]: "経度"
   };
+
+  const DEFAULT_POPUP_FIELDS = [
+    COLUMNS.recordType,
+    COLUMNS.locality,
+    VIRTUAL_COORDINATES_FIELD,
+    COLUMNS.date,
+    COLUMNS.repository,
+    COLUMNS.specimenId,
+    COLUMNS.id,
+    COLUMNS.remarks
+  ];
+
+  const DEFAULT_FILTER_FIELDS = [
+    COLUMNS.taxon,
+    COLUMNS.recordType,
+    COLUMNS.repository,
+    COLUMNS.year,
+    COLUMNS.month,
+    COLUMNS.day,
+    COLUMNS.date
+  ];
 
   const EMPTY_FILTER_VALUE = "__FIELD_MAP_EMPTY__";
 
   const RECORD_TYPE_PRIORITY = {
-    type: 50,
-    synonymType: 40,
-    thisStudy: 30,
-    literature: 20,
-    unknown: 0
+    // 代表記録の選択用。形状を最優先にするため、星 > 四角 > 丸の順にする。
+    type: 300,
+    synonymType: 200,
+    thisStudy: 100,
+    unknown: 100,
+    literature: 90
   };
 
   const RECORD_TYPE_LEGEND_ITEMS = [
     { kind: "type", label: "タイプ産地" },
     { kind: "synonymType", label: "シノニマイズされた種のタイプ産地" },
-    { kind: "literature", label: "文献記録" },
     { kind: "thisStudy", label: "本調査" },
-    { kind: "unknown", label: "その他" }
+    { kind: "unknown", label: "その他" },
+    { kind: "literature", label: "文献記録" }
   ];
 
   const DETAILED_MAP_ATTRIBUTION = "Imagery © <a href=\"https://www.esri.com/en-us/home\" target=\"_blank\" rel=\"noopener\">Esri</a>";
@@ -65,6 +101,7 @@
     filterOptions: new Map(),
     filters: new Map(),
     filterFields: [],
+    headers: [],
     markerGroups: [],
     activePopup: null,
     currentPopupIndex: 0,
@@ -133,6 +170,14 @@
   const datasetNameInput = document.getElementById("dataset-name-input");
   const datasetUrlInput = document.getElementById("dataset-url-input");
   const datasetSheetInput = document.getElementById("dataset-sheet-input");
+  const datasetLoadFieldsButton = document.getElementById("dataset-load-fields-button");
+  const datasetFieldSettings = document.getElementById("dataset-field-settings");
+  const datasetFieldsStatus = document.getElementById("dataset-fields-status");
+  const datasetColorFieldSelect = document.getElementById("dataset-color-field-select");
+  const datasetPopupTitleFieldSelect = document.getElementById("dataset-popup-title-field-select");
+  const datasetPopupFieldsList = document.getElementById("dataset-popup-fields-list");
+  const datasetFilterFieldsList = document.getElementById("dataset-filter-fields-list");
+  const colorLegendTitleEl = document.getElementById("color-legend-title");
   const datasetModalError = document.getElementById("dataset-modal-error");
   const DATASETS_STORAGE_KEY = CONFIG.LOCAL_DATASETS_STORAGE_KEY || "fieldMap.localDatasets.v1";
   const ACTIVE_DATASET_STORAGE_KEY = CONFIG.ACTIVE_DATASET_STORAGE_KEY || "fieldMap.activeDatasetId.v1";
@@ -186,7 +231,11 @@
           sheetName: normalizeText(dataset.sheetName) || CONFIG.DEFAULT_SHEET_NAME || "シート1",
           csvUrl: normalizeText(dataset.csvUrl),
           createdAt: normalizeText(dataset.createdAt),
-          updatedAt: normalizeText(dataset.updatedAt)
+          updatedAt: normalizeText(dataset.updatedAt),
+          colorField: normalizeDatasetFieldName(dataset.colorField),
+          popupTitleField: normalizeDatasetFieldName(dataset.popupTitleField),
+          popupFields: normalizeOptionalFieldList(dataset.popupFields),
+          filterFields: normalizeOptionalFieldList(dataset.filterFields)
         }))
         .filter((dataset) => dataset.id && dataset.name && (dataset.spreadsheetId || dataset.csvUrl));
     } catch (error) {
@@ -246,6 +295,10 @@
       spreadsheetId,
       sheetName,
       csvUrl,
+      colorField: normalizeDatasetFieldName(params.get("fm_color")),
+      popupTitleField: normalizeDatasetFieldName(params.get("fm_popup_title")),
+      popupFields: parseFieldListParam(params.get("fm_popup")),
+      filterFields: parseFieldListParam(params.get("fm_filter")),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -284,7 +337,122 @@
     return "";
   }
 
-  function normalizeDatasetInput(nameInput, urlInput, sheetNameInput, existing = null) {
+  function normalizeDatasetFieldName(fieldName) {
+    const field = normalizeText(fieldName);
+    if (!field) return "";
+    if (field === LEGACY_TAXON_HEADER) return COLUMNS.taxon;
+    if (field === LEGACY_LATITUDE_HEADER) return COLUMNS.latitude;
+    if (field === LEGACY_LONGITUDE_HEADER) return COLUMNS.longitude;
+    return field;
+  }
+
+  function uniqueFieldList(fields) {
+    const result = [];
+    const seen = new Set();
+    (Array.isArray(fields) ? fields : []).forEach((field) => {
+      const normalized = normalizeDatasetFieldName(field);
+      if (!normalized || seen.has(normalized)) return;
+      seen.add(normalized);
+      result.push(normalized);
+    });
+    return result;
+  }
+
+  function normalizeOptionalFieldList(fields) {
+    return Array.isArray(fields) ? uniqueFieldList(fields) : null;
+  }
+
+  function parseFieldListParam(value) {
+    const text = normalizeText(value);
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      return normalizeOptionalFieldList(parsed);
+    } catch (error) {
+      return normalizeOptionalFieldList(text.split("|"));
+    }
+  }
+
+  function normalizeFieldsForHeaders(fields, headers, { includeVirtual = false } = {}) {
+    const available = new Set((headers || []).map(normalizeText).filter(Boolean));
+    const result = [];
+    const seen = new Set();
+    uniqueFieldList(fields).forEach((field) => {
+      let normalized = field;
+      if (field === COLUMNS.taxon && !available.has(field) && available.has(LEGACY_TAXON_HEADER)) {
+        normalized = LEGACY_TAXON_HEADER;
+      } else if (field === LEGACY_TAXON_HEADER && available.has(COLUMNS.taxon)) {
+        normalized = COLUMNS.taxon;
+      } else if (field === COLUMNS.latitude && !available.has(field) && available.has(LEGACY_LATITUDE_HEADER)) {
+        normalized = LEGACY_LATITUDE_HEADER;
+      } else if (field === LEGACY_LATITUDE_HEADER && available.has(COLUMNS.latitude)) {
+        normalized = COLUMNS.latitude;
+      } else if (field === COLUMNS.longitude && !available.has(field) && available.has(LEGACY_LONGITUDE_HEADER)) {
+        normalized = LEGACY_LONGITUDE_HEADER;
+      } else if (field === LEGACY_LONGITUDE_HEADER && available.has(COLUMNS.longitude)) {
+        normalized = COLUMNS.longitude;
+      }
+      if (normalized === VIRTUAL_COORDINATES_FIELD && includeVirtual) {
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          result.push(normalized);
+        }
+        return;
+      }
+      if (!available.has(normalized) || seen.has(normalized)) return;
+      seen.add(normalized);
+      result.push(normalized);
+    });
+    return result;
+  }
+
+  function fieldLabel(field) {
+    if (field === VIRTUAL_COORDINATES_FIELD) return "緯度, 経度 [Google Map]";
+    return FILTER_FIELD_LABEL_OVERRIDES[field] || field;
+  }
+
+  function isTaxonField(field) {
+    return normalizeDatasetFieldName(field) === COLUMNS.taxon;
+  }
+
+  function fieldsReferToSameHeader(a, b) {
+    if (a === b) return true;
+    return normalizeDatasetFieldName(a) === normalizeDatasetFieldName(b);
+  }
+
+  function availablePopupFields(headers) {
+    const fields = [VIRTUAL_COORDINATES_FIELD, ...availableSheetFields(headers)];
+    return uniqueFieldList(fields);
+  }
+
+  function availableSheetFields(headers) {
+    return (headers || []).map(normalizeText).filter((header) => header && !header.startsWith("__raw_"));
+  }
+
+  function configuredPopupFields(dataset, headers) {
+    const source = Array.isArray(dataset?.popupFields) ? dataset.popupFields : DEFAULT_POPUP_FIELDS;
+    return normalizeFieldsForHeaders(source, headers, { includeVirtual: true });
+  }
+
+  function configuredFilterFields(dataset, headers) {
+    const source = Array.isArray(dataset?.filterFields) ? dataset.filterFields : DEFAULT_FILTER_FIELDS;
+    return normalizeFieldsForHeaders(source, headers);
+  }
+
+  function configuredColorField(dataset, headers = state.headers) {
+    const colorField = normalizeDatasetFieldName(dataset?.colorField);
+    if (!colorField) return "";
+    return normalizeFieldsForHeaders([colorField], headers)[0] || "";
+  }
+
+  function configuredPopupTitleField(dataset, headers = state.headers) {
+    const titleField = normalizeDatasetFieldName(dataset?.popupTitleField);
+    if (!titleField) return "";
+    return normalizeFieldsForHeaders([titleField], headers)[0] || "";
+  }
+
+
+  function normalizeDatasetInput(nameInput, urlInput, sheetNameInput, existing = null, settings = {}) {
     const name = normalizeText(nameInput);
     const sourceUrl = normalizeText(urlInput);
     const sheetName = normalizeText(sheetNameInput) || CONFIG.DEFAULT_SHEET_NAME || "シート1";
@@ -299,6 +467,8 @@
     }
 
     const now = new Date().toISOString();
+    const hasPopupFields = Array.isArray(settings.popupFields);
+    const hasFilterFields = Array.isArray(settings.filterFields);
     return {
       id: existing?.id || makeDatasetId(name),
       name,
@@ -306,6 +476,10 @@
       spreadsheetId,
       sheetName,
       csvUrl: spreadsheetId ? "" : sourceUrl,
+      colorField: normalizeDatasetFieldName(settings.colorField ?? existing?.colorField),
+      popupTitleField: normalizeDatasetFieldName(settings.popupTitleField ?? existing?.popupTitleField),
+      popupFields: hasPopupFields ? uniqueFieldList(settings.popupFields) : normalizeOptionalFieldList(existing?.popupFields),
+      filterFields: hasFilterFields ? uniqueFieldList(settings.filterFields) : normalizeOptionalFieldList(existing?.filterFields),
       createdAt: existing?.createdAt || now,
       updatedAt: now
     };
@@ -313,12 +487,203 @@
 
   let datasetModalResolve = null;
   let datasetModalExisting = null;
+  let datasetModalHeaders = [];
 
   function setDatasetModalError(message) {
     if (!datasetModalError) return;
     const text = normalizeText(message);
     datasetModalError.textContent = text;
     datasetModalError.hidden = !text;
+  }
+
+  function setDatasetFieldsStatus(message, isError = false) {
+    if (!datasetFieldsStatus) return;
+    const text = normalizeText(message);
+    datasetFieldsStatus.textContent = text;
+    datasetFieldsStatus.hidden = !text;
+    datasetFieldsStatus.classList.toggle("is-error", Boolean(isError));
+  }
+
+  function setDatasetFieldSettingsVisible(visible) {
+    if (datasetFieldSettings) datasetFieldSettings.hidden = !visible;
+  }
+
+  function orderedFieldsForSettings(available, selected) {
+    const availableSet = new Set(available);
+    const ordered = [];
+    const seen = new Set();
+    selected.forEach((field) => {
+      if (!availableSet.has(field) || seen.has(field)) return;
+      seen.add(field);
+      ordered.push(field);
+    });
+    available.forEach((field) => {
+      if (seen.has(field)) return;
+      seen.add(field);
+      ordered.push(field);
+    });
+    return ordered;
+  }
+
+  function moveDatasetFieldItem(button, direction) {
+    const item = button.closest(".dataset-field-item");
+    const list = item?.parentElement;
+    if (!item || !list) return;
+    if (direction < 0 && item.previousElementSibling) {
+      list.insertBefore(item, item.previousElementSibling);
+    } else if (direction > 0 && item.nextElementSibling) {
+      list.insertBefore(item.nextElementSibling, item);
+    }
+  }
+
+  function renderDatasetCheckboxList(container, fields, selectedFields, { reorder = false } = {}) {
+    if (!container) return;
+    container.innerHTML = "";
+    const selected = new Set(selectedFields);
+    fields.forEach((field) => {
+      const item = document.createElement("div");
+      item.className = "dataset-field-item";
+      item.dataset.field = field;
+
+      const label = document.createElement("label");
+      label.className = "dataset-field-check";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = field;
+      checkbox.checked = selected.has(field);
+
+      const text = document.createElement("span");
+      text.textContent = fieldLabel(field);
+
+      label.append(checkbox, text);
+      item.appendChild(label);
+
+      if (reorder) {
+        const actions = document.createElement("div");
+        actions.className = "dataset-field-order-actions";
+
+        const up = document.createElement("button");
+        up.type = "button";
+        up.textContent = "↑";
+        up.setAttribute("aria-label", fieldLabel(field) + "を上へ移動");
+        up.addEventListener("click", () => moveDatasetFieldItem(up, -1));
+
+        const down = document.createElement("button");
+        down.type = "button";
+        down.textContent = "↓";
+        down.setAttribute("aria-label", fieldLabel(field) + "を下へ移動");
+        down.addEventListener("click", () => moveDatasetFieldItem(down, 1));
+
+        actions.append(up, down);
+        item.appendChild(actions);
+      }
+
+      container.appendChild(item);
+    });
+  }
+
+  function populateDatasetFieldSelect(select, fields, selectedValue, blankLabel = "選択しない") {
+    if (!select) return;
+    select.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = blankLabel;
+    select.appendChild(blank);
+    fields.forEach((field) => {
+      const option = document.createElement("option");
+      option.value = field;
+      option.textContent = fieldLabel(field);
+      select.appendChild(option);
+    });
+    select.value = selectedValue && fields.includes(selectedValue) ? selectedValue : "";
+  }
+
+  function renderDatasetFieldSettings(headers, existing = datasetModalExisting) {
+    datasetModalHeaders = availableSheetFields(headers);
+    if (!datasetModalHeaders.length) {
+      setDatasetFieldSettingsVisible(false);
+      setDatasetFieldsStatus("ヘッダーを読み込めませんでした。", true);
+      return;
+    }
+
+    const colorField = configuredColorField(existing, datasetModalHeaders);
+    const popupTitleField = configuredPopupTitleField(existing, datasetModalHeaders);
+    populateDatasetFieldSelect(datasetColorFieldSelect, datasetModalHeaders, colorField);
+    populateDatasetFieldSelect(datasetPopupTitleFieldSelect, datasetModalHeaders, popupTitleField);
+
+    const popupAvailable = availablePopupFields(datasetModalHeaders);
+    const popupSelected = configuredPopupFields(existing, datasetModalHeaders);
+    renderDatasetCheckboxList(
+      datasetPopupFieldsList,
+      orderedFieldsForSettings(popupAvailable, popupSelected),
+      popupSelected,
+      { reorder: true }
+    );
+
+    const filterAvailable = availableSheetFields(datasetModalHeaders);
+    const filterSelected = configuredFilterFields(existing, datasetModalHeaders);
+    renderDatasetCheckboxList(datasetFilterFieldsList, filterAvailable, filterSelected);
+
+    setDatasetFieldSettingsVisible(true);
+    setDatasetFieldsStatus("列を読み込みました。必要に応じてタイトル項目・表示項目・フィルター項目・色分け項目を変更してください。", false);
+  }
+
+  async function loadDatasetFieldsForModal() {
+    if (!datasetLoadFieldsButton) return;
+    let draftDataset;
+    try {
+      draftDataset = normalizeDatasetInput(
+        datasetNameInput?.value || "一時読み込み",
+        datasetUrlInput?.value || "",
+        datasetSheetInput?.value || "",
+        datasetModalExisting,
+        readDatasetModalSettings()
+      );
+    } catch (error) {
+      setDatasetFieldsStatus(error.message, true);
+      return;
+    }
+
+    datasetLoadFieldsButton.disabled = true;
+    setDatasetFieldsStatus("列を読み込み中...", false);
+    try {
+      const { headers } = await loadSheetRows(draftDataset);
+      validateHeaders(headers);
+      renderDatasetFieldSettings(headers, draftDataset);
+    } catch (error) {
+      console.error(error);
+      setDatasetFieldSettingsVisible(false);
+      setDatasetFieldsStatus("列を読み込めませんでした: " + error.message, true);
+    } finally {
+      datasetLoadFieldsButton.disabled = false;
+    }
+  }
+
+  function readCheckedDatasetFields(container) {
+    if (!container || container.closest("[hidden]")) return null;
+    return Array.from(container.querySelectorAll('input[type="checkbox"]'))
+      .filter((input) => input.checked)
+      .map((input) => input.value);
+  }
+
+  function readDatasetModalSettings() {
+    const settingsVisible = datasetFieldSettings && !datasetFieldSettings.hidden;
+    if (!settingsVisible) {
+      return {
+        colorField: datasetModalExisting?.colorField || "",
+        popupTitleField: datasetModalExisting?.popupTitleField || "",
+        popupFields: Array.isArray(datasetModalExisting?.popupFields) ? datasetModalExisting.popupFields : null,
+        filterFields: Array.isArray(datasetModalExisting?.filterFields) ? datasetModalExisting.filterFields : null
+      };
+    }
+
+    return {
+      colorField: datasetColorFieldSelect?.value || "",
+      popupTitleField: datasetPopupTitleFieldSelect?.value || "",
+      popupFields: readCheckedDatasetFields(datasetPopupFieldsList) || [],
+      filterFields: readCheckedDatasetFields(datasetFilterFieldsList) || []
+    };
   }
 
   function closeDatasetModal(result = null) {
@@ -346,7 +711,15 @@
     datasetNameInput.value = existing?.name || "";
     datasetUrlInput.value = existing?.sourceUrl || existing?.spreadsheetId || existing?.csvUrl || "";
     datasetSheetInput.value = existing?.sheetName || CONFIG.DEFAULT_SHEET_NAME || "シート1";
+    datasetModalHeaders = [];
     setDatasetModalError("");
+    setDatasetFieldsStatus("");
+    setDatasetFieldSettingsVisible(false);
+
+    const activeDataset = getActiveDataset();
+    if (existing && activeDataset?.id === existing.id && state.headers.length) {
+      renderDatasetFieldSettings(state.headers, existing);
+    }
 
     datasetModal.hidden = false;
     document.body.classList.add("modal-open");
@@ -363,7 +736,8 @@
         datasetNameInput?.value || "",
         datasetUrlInput?.value || "",
         datasetSheetInput?.value || "",
-        datasetModalExisting
+        datasetModalExisting,
+        readDatasetModalSettings()
       );
       closeDatasetModal(dataset);
     } catch (error) {
@@ -460,10 +834,12 @@
     state.filterOptions = new Map();
     state.filters = new Map();
     state.filterFields = [];
+    state.headers = [];
     state.markerGroups = [];
     state.taxonColors = new Map();
     state.lastLoadedAt = null;
     state.skippedRows = 0;
+    if (colorLegendTitleEl) colorLegendTitleEl.textContent = "色分け";
     if (taxonLegendEl) taxonLegendEl.innerHTML = "";
     if (recordTypeLegendEl) recordTypeLegendEl.innerHTML = "";
     updateFilterSummary();
@@ -490,12 +866,11 @@
   }
 
   function buildFilterFields(headers) {
-    return headers
-      .map(normalizeText)
-      .filter((header) => header && !header.startsWith("__raw_"))
+    const dataset = getActiveDataset();
+    return configuredFilterFields(dataset, headers)
       .map((header) => ({
         key: header,
-        label: FILTER_FIELD_LABEL_OVERRIDES[header] || header
+        label: fieldLabel(header)
       }));
   }
 
@@ -924,6 +1299,17 @@
       url.searchParams.set("fm_csv", dataset.csvUrl);
     }
 
+    const colorField = normalizeDatasetFieldName(dataset.colorField);
+    if (colorField) url.searchParams.set("fm_color", colorField);
+    const popupTitleField = normalizeDatasetFieldName(dataset.popupTitleField);
+    if (popupTitleField) url.searchParams.set("fm_popup_title", popupTitleField);
+    if (Array.isArray(dataset.popupFields)) {
+      url.searchParams.set("fm_popup", JSON.stringify(uniqueFieldList(dataset.popupFields)));
+    }
+    if (Array.isArray(dataset.filterFields)) {
+      url.searchParams.set("fm_filter", JSON.stringify(uniqueFieldList(dataset.filterFields)));
+    }
+
     const baseMap = basemapSelect?.value || CONFIG.INITIAL_BASEMAP || "detail";
     url.searchParams.set("fm_base", baseMap === "pale" ? "pale" : "detail");
 
@@ -1094,30 +1480,59 @@
   }
 
   function taxonKey(value) {
-    return normalizeText(value) || "同定未入力";
+    return normalizeText(value) || "分類群未入力";
   }
 
-  function colorForTaxon(taxon) {
-    const text = taxonKey(taxon);
-    return state.taxonColors.get(text) || fallbackColorForTaxon(text);
+  function colorKey(value) {
+    return normalizeText(value) || "未設定";
   }
 
-  function fallbackColorForTaxon(taxon) {
-    return TAXON_COLOR_PALETTE[hashString(taxonKey(taxon)) % TAXON_COLOR_PALETTE.length];
+  function activeColorField() {
+    return configuredColorField(getActiveDataset(), state.headers);
+  }
+
+  function activePopupTitleField() {
+    return configuredPopupTitleField(getActiveDataset(), state.headers);
+  }
+
+  function getRecordColorValue(record) {
+    const field = activeColorField();
+    if (!field) return "";
+    return colorKey(record?.__values?.[field]);
+  }
+
+  function colorForColorValue(value) {
+    const text = normalizeText(value);
+    if (!text) return DEFAULT_MARKER_COLOR;
+    return state.taxonColors.get(text) || fallbackColorForColorValue(text);
+  }
+
+  function colorForRecord(record) {
+    return colorForColorValue(getRecordColorValue(record));
+  }
+
+  function fallbackColorForColorValue(value) {
+    return TAXON_COLOR_PALETTE[hashString(colorKey(value)) % TAXON_COLOR_PALETTE.length];
   }
 
   function assignTaxonColors(records) {
-    const taxa = [...new Set(records.map((record) => taxonKey(record.taxon)))]
+    const colorField = activeColorField();
+    if (!colorField) {
+      state.taxonColors = new Map();
+      return;
+    }
+
+    const values = [...new Set(records.map((record) => getRecordColorValue(record)))]
       .sort((a, b) => a.localeCompare(b, "ja"));
 
-    const adjacency = buildTaxonAdjacency(records, taxa);
+    const adjacency = buildTaxonAdjacency(records, values);
     const counts = new Map();
     records.forEach((record) => {
-      const taxon = taxonKey(record.taxon);
-      counts.set(taxon, (counts.get(taxon) || 0) + 1);
+      const value = getRecordColorValue(record);
+      counts.set(value, (counts.get(value) || 0) + 1);
     });
 
-    const order = taxa.sort((a, b) => {
+    const order = values.sort((a, b) => {
       const degreeA = weightedDegree(adjacency.get(a));
       const degreeB = weightedDegree(adjacency.get(b));
       if (degreeB !== degreeA) return degreeB - degreeA;
@@ -1134,8 +1549,8 @@
     const groupUsage = new Map();
     const selectedColorGroups = selectDistinctColorGroups(Math.max(order.length, 1));
 
-    order.forEach((taxon) => {
-      const neighbors = adjacency.get(taxon) || new Map();
+    order.forEach((value) => {
+      const neighbors = adjacency.get(value) || new Map();
       const paletteGroups = selectedColorGroups;
       const forceUniqueGlobalColors = paletteGroups.length >= order.length;
       let bestGroup = paletteGroups[0] || TAXON_COLOR_CANDIDATES[0];
@@ -1144,10 +1559,10 @@
       paletteGroups.forEach((candidate, paletteIndex) => {
         let score = 0;
 
-        // 近接関係のある同定で同じ色グループを使うことを強く避けます。
-        neighbors.forEach((weight, neighborTaxon) => {
-          const neighborColor = assigned.get(neighborTaxon);
-          const neighborGroup = assignedGroups.get(neighborTaxon);
+        // 近接関係のある値で同じ色グループを使うことを強く避けます。
+        neighbors.forEach((weight, neighborValue) => {
+          const neighborColor = assigned.get(neighborValue);
+          const neighborGroup = assignedGroups.get(neighborValue);
           if (!neighborColor || !neighborGroup) return;
 
           if (neighborGroup === candidate.name) {
@@ -1157,7 +1572,7 @@
           }
         });
 
-        // 近接していない同定でも、すでに使われている色からできるだけ離します。
+        // 近接していない値でも、すでに使われている色からできるだけ離します。
         const assignedColors = [...assigned.values()];
         if (assignedColors.length > 0) {
           const globalMinDistance = minColorDistance(candidate.color, assignedColors);
@@ -1167,17 +1582,13 @@
           score += 1000;
         }
 
-        // 同定数が候補色数以下のときは、全体として色の再利用を禁止します。
-        // 8種程度で同じ色・ほぼ同じ色が出ることを防ぐためです。
+        // 値の数が候補色数以下のときは、全体として色の再利用を禁止します。
         const usageCount = groupUsage.get(candidate.name) || 0;
         if (forceUniqueGlobalColors && usageCount > 0) {
           score -= 1000000;
         }
 
-        // 色数を超えた場合の再利用は許容しますが、なるべく使用回数が少ない色を選びます。
         score -= usageCount * 300;
-
-        // 同点時に結果が揺れないよう、パレット順をわずかに優先します。
         score -= paletteIndex * 0.001;
 
         if (score > bestScore) {
@@ -1186,8 +1597,8 @@
         }
       });
 
-      assigned.set(taxon, bestGroup.color);
-      assignedGroups.set(taxon, bestGroup.name);
+      assigned.set(value, bestGroup.color);
+      assignedGroups.set(value, bestGroup.name);
       groupUsage.set(bestGroup.name, (groupUsage.get(bestGroup.name) || 0) + 1);
     });
 
@@ -1348,38 +1759,39 @@
     return `#${toHex(r1)}${toHex(g1)}${toHex(b1)}`.toUpperCase();
   }
 
-  function buildTaxonAdjacency(records, taxa) {
-    const adjacency = new Map(taxa.map((taxon) => [taxon, new Map()]));
+  function buildTaxonAdjacency(records, values) {
+    const adjacency = new Map(values.map((value) => [value, new Map()]));
     const nearestCount = Math.max(1, Number(CONFIG.COLOR_NEAREST_DIFFERENT_TAXA) || 5);
 
     records.forEach((record, index) => {
-      const sourceTaxon = taxonKey(record.taxon);
+      const sourceValue = getRecordColorValue(record);
+      if (!sourceValue) return;
       const nearest = [];
 
       records.forEach((otherRecord, otherIndex) => {
         if (index === otherIndex) return;
 
-        const targetTaxon = taxonKey(otherRecord.taxon);
-        if (sourceTaxon === targetTaxon) return;
+        const targetValue = getRecordColorValue(otherRecord);
+        if (!targetValue || sourceValue === targetValue) return;
 
         const distance = haversineMeters(record.latitude, record.longitude, otherRecord.latitude, otherRecord.longitude);
         if (!Number.isFinite(distance)) return;
 
-        nearest.push({ taxon: targetTaxon, distance });
+        nearest.push({ value: targetValue, distance });
       });
 
       nearest.sort((a, b) => a.distance - b.distance);
 
-      const addedTaxa = new Set();
+      const addedValues = new Set();
       for (const neighbor of nearest) {
-        if (addedTaxa.has(neighbor.taxon)) continue;
+        if (addedValues.has(neighbor.value)) continue;
 
-        addedTaxa.add(neighbor.taxon);
-        const rank = addedTaxa.size;
+        addedValues.add(neighbor.value);
+        const rank = addedValues.size;
         const weight = nearestCount + 1 - rank;
-        addAdjacencyWeight(adjacency, sourceTaxon, neighbor.taxon, weight);
+        addAdjacencyWeight(adjacency, sourceValue, neighbor.value, weight);
 
-        if (addedTaxa.size >= nearestCount) break;
+        if (addedValues.size >= nearestCount) break;
       }
     });
 
@@ -1619,9 +2031,10 @@
     try {
       const { rows, headers } = await loadSheetRows(dataset);
       validateHeaders(headers);
-      state.filterFields = buildFilterFields(headers);
+      state.headers = availableSheetFields(headers);
+      state.filterFields = buildFilterFields(state.headers);
 
-      const records = normalizeRows(rows, headers);
+      const records = normalizeRows(rows, state.headers);
       state.rows = records;
       state.filterOptions = buildFilterOptions(records);
       state.filters = loadFiltersForActiveDataset(state.filterOptions);
@@ -1830,11 +2243,19 @@ ${error.message}`);
 
   function validateHeaders(headers) {
     const headerSet = new Set(headers.map(normalizeText));
-    if (!headerSet.has(COLUMNS.taxon) && headerSet.has("Taxon")) {
-      throw new Error("ヘッダーが旧形式です。「Taxon」ではなく「同定」に変更してから、再読み込みしてください。");
+    const hasTaxonHeader = headerSet.has(COLUMNS.taxon) || headerSet.has(LEGACY_TAXON_HEADER);
+    const hasLatitudeHeader = headerSet.has(COLUMNS.latitude) || headerSet.has(LEGACY_LATITUDE_HEADER);
+    const hasLongitudeHeader = headerSet.has(COLUMNS.longitude) || headerSet.has(LEGACY_LONGITUDE_HEADER);
+    if (!hasTaxonHeader && headerSet.has(REJECTED_TAXON_HEADER)) {
+      throw new Error("ヘッダーが旧形式です。「Taxon」ではなく「分類群」に変更してから、再読み込みしてください。");
     }
 
-    const missing = REQUIRED_HEADERS.filter((header) => !headerSet.has(header));
+    const missing = REQUIRED_HEADERS.filter((header) => {
+      if (header === COLUMNS.taxon) return !hasTaxonHeader;
+      if (header === COLUMNS.latitude) return !hasLatitudeHeader;
+      if (header === COLUMNS.longitude) return !hasLongitudeHeader;
+      return !headerSet.has(header);
+    });
     if (missing.length > 0) {
       throw new Error(`必須ヘッダーが見つかりません: ${missing.join(", ")}`);
     }
@@ -1843,29 +2264,45 @@ ${error.message}`);
   function normalizeRows(rows, headers) {
     const filterHeaders = (headers || []).map(normalizeText).filter(Boolean);
     return rows.map((row, index) => {
-      const latitude = parseNumber(row[`__raw_${COLUMNS.latitude}`] ?? row[COLUMNS.latitude]);
-      const longitude = parseNumber(row[`__raw_${COLUMNS.longitude}`] ?? row[COLUMNS.longitude]);
-      const filterValues = {};
+      const latitude = parseNumber(
+        row[`__raw_${COLUMNS.latitude}`] ?? row[COLUMNS.latitude] ??
+        row[`__raw_${LEGACY_LATITUDE_HEADER}`] ?? row[LEGACY_LATITUDE_HEADER]
+      );
+      const longitude = parseNumber(
+        row[`__raw_${COLUMNS.longitude}`] ?? row[COLUMNS.longitude] ??
+        row[`__raw_${LEGACY_LONGITUDE_HEADER}`] ?? row[LEGACY_LONGITUDE_HEADER]
+      );
+      const values = {};
       filterHeaders.forEach((header) => {
-        filterValues[header] = normalizeText(row[header]);
+        values[header] = normalizeText(row[header]);
       });
+      if (!values[COLUMNS.taxon] && values[LEGACY_TAXON_HEADER]) {
+        values[COLUMNS.taxon] = values[LEGACY_TAXON_HEADER];
+      }
+      if (!values[COLUMNS.latitude] && values[LEGACY_LATITUDE_HEADER]) {
+        values[COLUMNS.latitude] = values[LEGACY_LATITUDE_HEADER];
+      }
+      if (!values[COLUMNS.longitude] && values[LEGACY_LONGITUDE_HEADER]) {
+        values[COLUMNS.longitude] = values[LEGACY_LONGITUDE_HEADER];
+      }
 
       return {
-        __filterValues: filterValues,
+        __values: values,
+        __filterValues: values,
         __index: index,
-        id: normalizeText(row[COLUMNS.id]),
-        taxon: normalizeText(row[COLUMNS.taxon]),
-        recordType: normalizeText(row[COLUMNS.recordType]),
-        repository: normalizeText(row[COLUMNS.repository]),
-        specimenId: normalizeText(row[COLUMNS.specimenId]),
-        locality: normalizeText(row[COLUMNS.locality]),
+        id: values[COLUMNS.id] || "",
+        taxon: values[COLUMNS.taxon] || values[LEGACY_TAXON_HEADER] || "",
+        recordType: values[COLUMNS.recordType] || "",
+        repository: values[COLUMNS.repository] || "",
+        specimenId: values[COLUMNS.specimenId] || "",
+        locality: values[COLUMNS.locality] || "",
         latitude,
         longitude,
-        year: normalizeText(row[COLUMNS.year]),
-        month: normalizeText(row[COLUMNS.month]),
-        day: normalizeText(row[COLUMNS.day]),
-        date: normalizeText(row[COLUMNS.date]),
-        remarks: normalizeText(row[COLUMNS.remarks])
+        year: values[COLUMNS.year] || "",
+        month: values[COLUMNS.month] || "",
+        day: values[COLUMNS.day] || "",
+        date: values[COLUMNS.date] || "",
+        remarks: values[COLUMNS.remarks] || ""
       };
     }).filter((record) => {
       if (!Number.isFinite(record.latitude) || !Number.isFinite(record.longitude)) return false;
@@ -1888,21 +2325,30 @@ ${error.message}`);
     const groups = buildMarkerGroups(state.filteredRows);
     state.markerGroups = groups;
 
-    groups.forEach((group) => {
+    // 優先度の低いマーカーから描画し、高いマーカーを前面に出す。
+    const renderGroups = [...groups].sort((a, b) => getMarkerGroupPriority(a) - getMarkerGroupPriority(b));
+
+    renderGroups.forEach((group) => {
       const element = createMarkerElement(group);
+      element.style.zIndex = String(100 + getMarkerGroupPriority(group));
       const marker = new maplibregl.Marker({ element })
-        .setLngLat([group.representative.longitude, group.representative.latitude])
+        .setLngLat(markerGroupLngLat(group))
         .addTo(state.map);
 
       element.addEventListener("click", (event) => {
         event.stopPropagation();
-        state.currentPopupRecords = group.records;
-        state.currentPopupIndex = 0;
-        showPopup(0, false);
+        openPopupForMarkerGroup(group);
       });
 
       state.markers.push(marker);
     });
+  }
+
+  function openPopupForMarkerGroup(group) {
+    if (!group) return;
+    state.currentPopupRecords = popupRecordsForNearbyMarkerGroups(group);
+    state.currentPopupIndex = 0;
+    showPopup(0, false);
   }
 
   function buildMarkerGroups(records) {
@@ -1938,13 +2384,15 @@ ${error.message}`);
       }
     });
 
-    return groups.sort((a, b) => compareRecordsForRepresentative(a.representative, b.representative));
+    groups.forEach(finalizeMarkerGroup);
+    return groups.sort(compareMarkerGroups);
   }
 
   function createMarkerElement(group) {
+    finalizeMarkerGroup(group);
     const record = group.representative;
-    const kind = recordKind(record.recordType);
-    const segments = getMarkerSegments(group.records);
+    const segments = group.segments || getMarkerSegments(group.records);
+    const kind = markerKindForGroup(group);
     const wrapper = document.createElement("button");
     wrapper.type = "button";
     wrapper.className = `record-marker kind-${kind}${segments.length > 1 ? " multi-taxon" : ""}`;
@@ -1954,32 +2402,153 @@ ${error.message}`);
     return wrapper;
   }
 
-  function getMarkerSegments(records) {
-    const byTaxon = new Map();
+  function finalizeMarkerGroup(group) {
+    if (!group || !Array.isArray(group.records) || !group.records.length) return group;
+    group.records.sort(compareRecordsForRepresentative);
+    group.segments = getMarkerSegments(group.records);
+    const bestSegment = bestMarkerSegment(group.segments);
+    group.markerPriority = getMarkerSegmentPriority(bestSegment);
+    group.representative = bestSegment?.representative || group.records[0];
+    group.longitude = group.representative.longitude;
+    group.latitude = group.representative.latitude;
+    group.pixel = state.map ? state.map.project(markerGroupLngLat(group)) : group.pixel;
+    return group;
+  }
 
-    records.forEach((record) => {
-      const key = taxonKey(record.taxon);
-      if (!byTaxon.has(key)) {
-        byTaxon.set(key, []);
-      }
-      byTaxon.get(key).push(record);
+  function markerGroupLngLat(group) {
+    const longitude = Number(group?.longitude ?? group?.representative?.longitude);
+    const latitude = Number(group?.latitude ?? group?.representative?.latitude);
+    return [longitude, latitude];
+  }
+
+  function markerKindForGroup(group) {
+    const segment = bestMarkerSegment(group?.segments || getMarkerSegments(group?.records || []));
+    return segment?.kind || recordKind(group?.representative?.recordType) || "unknown";
+  }
+
+  function bestMarkerSegment(segments) {
+    return [...(segments || [])].sort(compareMarkerSegments)[0] || null;
+  }
+
+  function markerShapePriority(kind) {
+    if (kind === "type") return 3;
+    if (kind === "synonymType") return 2;
+    return 1;
+  }
+
+  function getMarkerSegmentPriority(segment) {
+    if (!segment) return 0;
+    const shapePriority = markerShapePriority(segment.kind);
+    const fillPriority = segment.hollow ? 0 : 1;
+    return shapePriority * 10 + fillPriority;
+  }
+
+  function compareMarkerSegments(a, b) {
+    const priorityDiff = getMarkerSegmentPriority(b) - getMarkerSegmentPriority(a);
+    if (priorityDiff !== 0) return priorityDiff;
+    return compareRecordsForRepresentative(a?.representative || {}, b?.representative || {});
+  }
+
+  function getMarkerGroupPriority(group) {
+    if (!group) return 0;
+    if (Number.isFinite(group.markerPriority)) return group.markerPriority;
+    finalizeMarkerGroup(group);
+    return group.markerPriority || 0;
+  }
+
+  function compareMarkerGroups(a, b) {
+    const priorityDiff = getMarkerGroupPriority(b) - getMarkerGroupPriority(a);
+    if (priorityDiff !== 0) return priorityDiff;
+    const aLngLat = markerGroupLngLat(a);
+    const bLngLat = markerGroupLngLat(b);
+    const latDiff = aLngLat[1] - bLngLat[1];
+    if (latDiff !== 0) return latDiff;
+    return aLngLat[0] - bLngLat[0];
+  }
+
+  function popupRecordsForNearbyMarkerGroups(clickedGroup) {
+    const groups = nearbyMarkerGroups(clickedGroup);
+    const entries = [];
+    groups.forEach((group) => {
+      finalizeMarkerGroup(group);
+      const lngLat = markerGroupLngLat(group);
+      [...group.records].sort(compareRecordsForRepresentative).forEach((record) => {
+        entries.push({
+          ...record,
+          __popupLongitude: lngLat[0],
+          __popupLatitude: lngLat[1],
+          __popupMarkerPriority: getMarkerGroupPriority(group)
+        });
+      });
+    });
+    return entries;
+  }
+
+  function nearbyMarkerGroups(clickedGroup) {
+    if (!state.map || !clickedGroup) return clickedGroup ? [clickedGroup] : [];
+    const clickedLngLat = markerGroupLngLat(clickedGroup);
+    const clickedPixel = state.map.project(clickedLngLat);
+    const candidates = state.markerGroups
+      .map((group) => {
+        finalizeMarkerGroup(group);
+        const pixel = state.map.project(markerGroupLngLat(group));
+        const dx = pixel.x - clickedPixel.x;
+        const dy = pixel.y - clickedPixel.y;
+        return { group, distance: Math.sqrt(dx * dx + dy * dy) };
+      })
+      .filter((entry) => entry.group === clickedGroup || entry.distance <= POPUP_NEARBY_MARKER_PIXELS);
+
+    candidates.sort((a, b) => {
+      if (a.group === clickedGroup) return -1;
+      if (b.group === clickedGroup) return 1;
+      const priorityDiff = getMarkerGroupPriority(b.group) - getMarkerGroupPriority(a.group);
+      if (priorityDiff !== 0) return priorityDiff;
+      return a.distance - b.distance;
     });
 
-    return [...byTaxon.entries()]
-      .map(([taxon, taxonRecords]) => {
-        const sortedRecords = [...taxonRecords].sort(compareRecordsForRepresentative);
+    return candidates.map((entry) => entry.group);
+  }
+
+  function getMarkerSegments(records) {
+    const colorField = activeColorField();
+    if (!colorField) {
+      const sortedRecords = [...records].sort(compareRecordsForRepresentative);
+      const representative = sortedRecords[0];
+      const kind = recordKind(representative.recordType);
+      const hasThisStudy = records.some((record) => recordKind(record.recordType) === "thisStudy");
+      return [{
+        value: "",
+        color: DEFAULT_MARKER_COLOR,
+        kind,
+        hollow: shouldUseHollowMarkerInterior(kind, hasThisStudy),
+        representative
+      }];
+    }
+
+    const byValue = new Map();
+    records.forEach((record) => {
+      const key = getRecordColorValue(record);
+      if (!byValue.has(key)) {
+        byValue.set(key, []);
+      }
+      byValue.get(key).push(record);
+    });
+
+    return [...byValue.entries()]
+      .map(([value, valueRecords]) => {
+        const sortedRecords = [...valueRecords].sort(compareRecordsForRepresentative);
         const representative = sortedRecords[0];
         const kind = recordKind(representative.recordType);
-        const hasThisStudyForSameTaxon = taxonRecords.some((record) => recordKind(record.recordType) === "thisStudy");
+        const hasThisStudyForSameValue = valueRecords.some((record) => recordKind(record.recordType) === "thisStudy");
         return {
-          taxon,
-          color: colorForTaxon(taxon),
+          value,
+          color: colorForColorValue(value),
           kind,
-          hollow: shouldUseHollowMarkerInterior(kind, hasThisStudyForSameTaxon),
+          hollow: shouldUseHollowMarkerInterior(kind, hasThisStudyForSameValue),
           representative
         };
       })
-      .sort((a, b) => compareRecordsForRepresentative(a.representative, b.representative));
+      .sort(compareMarkerSegments);
   }
 
   function shouldUseHollowMarkerInterior(kind, hasThisStudyForSameTaxon) {
@@ -2205,32 +2774,66 @@ ${error.message}`);
     });
   }
 
+  function popupMarkerSvg(record) {
+    const kind = recordKind(record?.recordType);
+    const color = activeColorField() ? colorForRecord(record) : DEFAULT_MARKER_COLOR;
+    const relatedRecords = recordsForPopupMarker(record);
+    const hasThisStudyForSameColorValue = relatedRecords.some((candidate) => recordKind(candidate.recordType) === "thisStudy");
+    const hollow = shouldUseHollowMarkerInterior(kind, hasThisStudyForSameColorValue);
+    return markerSvg(kind, [{
+      color,
+      kind,
+      hollow,
+      representative: record
+    }]);
+  }
+
+  function recordsForPopupMarker(record) {
+    const colorField = activeColorField();
+    if (!colorField) {
+      return [record];
+    }
+
+    const colorValue = getRecordColorValue(record);
+    return state.currentPopupRecords.filter((candidate) => getRecordColorValue(candidate) === colorValue);
+  }
+
   function createPopupContent(record) {
     const content = document.createElement("div");
     content.className = "popup-content";
 
-    const title = document.createElement("div");
-    title.className = "popup-title";
+    const titleField = activePopupTitleField();
+    if (titleField) {
+      const rawTitleValue = titleField === COLUMNS.date
+        ? (record.date || joinDateParts(record))
+        : record?.__values?.[titleField];
+      const titleValue = displayText(rawTitleValue);
+      const title = document.createElement("div");
+      title.className = "popup-title";
+      const titleMarker = document.createElement("span");
+      titleMarker.className = "popup-title-marker";
+      titleMarker.innerHTML = popupMarkerSvg(record);
+      title.appendChild(titleMarker);
 
-    const titleChip = document.createElement("span");
-    titleChip.className = "popup-title-chip";
-    titleChip.style.background = colorForTaxon(record.taxon);
+      const titleText = document.createElement("span");
+      titleText.innerHTML = isTaxonField(titleField) && normalizeText(rawTitleValue)
+        ? formatTaxonHTML(titleValue)
+        : escapeHtml(titleValue);
 
-    const titleText = document.createElement("span");
-    titleText.innerHTML = formatTaxonHTML(record.taxon);
+      title.appendChild(titleText);
+      content.appendChild(title);
+    }
 
-    title.appendChild(titleChip);
-    title.appendChild(titleText);
-    content.appendChild(title);
-
-    appendPopupRow(content, "記録の種類", record.recordType);
-    appendPopupRow(content, "場所", record.locality);
-    appendCoordinateRow(content, record);
-    appendPopupRow(content, "表示する日付", record.date || joinDateParts(record));
-    appendPopupRow(content, "所蔵", record.repository);
-    appendPopupRow(content, "標本ID", record.specimenId);
-    appendPopupRow(content, "記録ID", record.id);
-    appendPopupRow(content, "備考", record.remarks);
+    configuredPopupFields(getActiveDataset(), state.headers).forEach((field) => {
+      if (field === VIRTUAL_COORDINATES_FIELD) {
+        appendCoordinateRow(content, record);
+        return;
+      }
+      const value = field === COLUMNS.date
+        ? (record.date || joinDateParts(record))
+        : record.__values?.[field];
+      appendPopupRow(content, fieldLabel(field), value);
+    });
 
     return content;
   }
@@ -2258,7 +2861,7 @@ ${error.message}`);
 
     const labelEl = document.createElement("div");
     labelEl.className = "popup-label";
-    labelEl.textContent = "Latitude, Longitude";
+    labelEl.textContent = "緯度, 経度";
 
     const valueEl = document.createElement("div");
     valueEl.className = "popup-value";
@@ -2324,7 +2927,11 @@ ${error.message}`);
       state.activePopup = null;
     }
 
-    const markerPixel = state.map.project([record.longitude, record.latitude]);
+    const popupLngLat = [
+      Number(record.__popupLongitude ?? record.longitude),
+      Number(record.__popupLatitude ?? record.latitude)
+    ];
+    const markerPixel = state.map.project(popupLngLat);
     const mapHeight = state.map.getContainer().offsetHeight;
     const margin = 84;
     const distanceFromTop = markerPixel.y;
@@ -2367,7 +2974,7 @@ ${error.message}`);
       offset: 0,
       maxWidth: "min(360px, calc(100vw - 28px))"
     })
-      .setLngLat([record.longitude, record.latitude])
+      .setLngLat(popupLngLat)
       .setDOMContent(wrapper)
       .addTo(state.map);
 
@@ -2458,20 +3065,71 @@ ${error.message}`);
   function renderTaxonLegend(records) {
     if (!taxonLegendEl) return;
 
-    const taxa = [...new Set(records.map((record) => taxonKey(record.taxon)))]
-      .sort((a, b) => a.localeCompare(b, "ja"));
+    const colorField = activeColorField();
+    if (colorLegendTitleEl) {
+      colorLegendTitleEl.textContent = colorField ? `色分け：${fieldLabel(colorField)}` : "色分け";
+    }
 
-    if (!taxa.length) {
-      taxonLegendEl.innerHTML = '<div class="taxon-row legend-empty">表示中の分類群はありません</div>';
+    if (!colorField) {
+      taxonLegendEl.innerHTML = '<div class="taxon-row legend-empty">色分け項目が未選択です</div>';
       return;
     }
 
-    taxonLegendEl.innerHTML = taxa.map((taxon) => `
-      <div class="taxon-row">
-        <span class="taxon-chip" style="background: ${colorForTaxon(taxon)}"></span>
-        <span>${formatTaxonHTML(taxon)}</span>
-      </div>`).join("");
+    const values = [...new Set(records.map((record) => getRecordColorValue(record)))]
+      .sort((a, b) => a.localeCompare(b, "ja"));
+
+    if (!values.length) {
+      taxonLegendEl.innerHTML = '<div class="taxon-row legend-empty">表示中の記録はありません</div>';
+      return;
+    }
+
+    taxonLegendEl.innerHTML = values.map((value) => {
+      const labelHtml = colorField === COLUMNS.taxon || colorField === LEGACY_TAXON_HEADER
+        ? formatTaxonHTML(value)
+        : escapeHTML(value);
+      return `
+        <div class="taxon-row">
+          <span class="taxon-chip" style="background: ${colorForColorValue(value)}"></span>
+          <span>${labelHtml}</span>
+        </div>`;
+    }).join("");
   }
+
+  function mapPixelFromClientEvent(event) {
+    if (!state.map || !event) return null;
+    const container = state.map.getContainer();
+    if (!container) return null;
+    const rect = container.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+  }
+
+  function markerGroupAtClientPoint(event) {
+    if (!state.map || !Array.isArray(state.markerGroups) || !state.markerGroups.length) return null;
+    const clickPixel = mapPixelFromClientEvent(event);
+    if (!clickPixel) return null;
+
+    const candidates = state.markerGroups
+      .map((group) => {
+        finalizeMarkerGroup(group);
+        const markerPixel = state.map.project(markerGroupLngLat(group));
+        const dx = markerPixel.x - clickPixel.x;
+        const dy = markerPixel.y - clickPixel.y;
+        return { group, distance: Math.sqrt(dx * dx + dy * dy) };
+      })
+      .filter((entry) => entry.distance <= POPUP_CLICK_THROUGH_MARKER_PIXELS);
+
+    candidates.sort((a, b) => {
+      const priorityDiff = getMarkerGroupPriority(b.group) - getMarkerGroupPriority(a.group);
+      if (priorityDiff !== 0) return priorityDiff;
+      return a.distance - b.distance;
+    });
+
+    return candidates[0]?.group || null;
+  }
+
 
   function setupPopupClose() {
     document.addEventListener("click", (event) => {
@@ -2482,7 +3140,13 @@ ${error.message}`);
       const insideMarker = target.closest(".record-marker");
       const insideMapControl = target.closest(".maplibregl-ctrl");
       if (!insidePopup && !insideMarker && !insideMapControl) {
+        const nextGroup = markerGroupAtClientPoint(event);
         closePopup();
+        if (nextGroup) {
+          event.preventDefault();
+          event.stopPropagation();
+          openPopupForMarkerGroup(nextGroup);
+        }
       }
     }, true);
   }
@@ -2503,6 +3167,7 @@ ${error.message}`);
     });
   }
 
+  if (datasetLoadFieldsButton) datasetLoadFieldsButton.addEventListener("click", loadDatasetFieldsForModal);
   if (datasetModalCloseButton) datasetModalCloseButton.addEventListener("click", () => closeDatasetModal(null));
   if (datasetModalCancelButton) datasetModalCancelButton.addEventListener("click", () => closeDatasetModal(null));
   if (datasetModal) {

@@ -25,20 +25,28 @@ window.FIELD_MAP_CONFIG = {
   // 画面上でこのピクセル数以内にある記録を近接記録としてまとめます。
   PROXIMITY_PIXELS: 10,
 
-  // 同定色の割り当て時に、各記録から最も近い別同定を何種類まで見るか。
+  // ポップアップの前後ボタンで切り替える近接マーカーの判定半径です。
+  // detail.zip と同じく、近接記録の統合距離と同程度の 10 px を初期値にします。
+  // 地理的距離ではなく、現在の画面上のピクセル距離で判定します。
+  POPUP_NEARBY_MARKER_PIXELS: 10,
+
+  // ポップアップ表示中に別マーカーをクリックした場合、同じクリックで開き直す判定半径です。
+  POPUP_CLICK_THROUGH_MARKER_PIXELS: 14,
+
+  // 色分け時に、各記録から最も近い別の値を何種類まで見るか。
   // 固定距離ではなく「近い順」のため、ズームや地図表示範囲には依存しません。
   COLOR_NEAREST_DIFFERENT_TAXA: 5,
 
   // 表示に使う列名。
   COLUMNS: {
     id: "記録ID",
-    taxon: "同定",
+    taxon: "分類群",
     recordType: "記録の種類",
     repository: "所蔵",
     specimenId: "標本ID",
     locality: "場所",
-    latitude: "Latitude",
-    longitude: "Longitude",
+    latitude: "緯度",
+    longitude: "経度",
     year: "年",
     month: "月",
     day: "日",

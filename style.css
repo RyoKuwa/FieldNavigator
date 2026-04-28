@@ -244,10 +244,12 @@ body,
 
 
 .maplibregl-popup {
-  z-index: 100;
+  z-index: 10000 !important;
+  pointer-events: none;
 }
 
 .maplibregl-popup-content {
+  pointer-events: auto;
   padding: 0;
   border: 1px solid rgba(0, 0, 0, 0.55);
   border-radius: 10px;
@@ -411,14 +413,21 @@ body,
   gap: 6px;
 }
 
-.popup-title-chip {
-  display: inline-block;
+.popup-title-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-  width: 12px;
-  height: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.55);
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+  width: 16px;
+  height: 16px;
+}
+
+.popup-title-marker svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.8));
 }
 
 .non-italic {
@@ -563,6 +572,11 @@ body.modal-open {
   display: none !important;
 }
 
+.dataset-field-settings[hidden],
+.dataset-fields-status[hidden] {
+  display: none !important;
+}
+
 .modal-panel {
   width: min(560px, 100%);
   max-height: calc(100vh - 36px);
@@ -673,7 +687,8 @@ body.modal-open {
 }
 
 .modal-field input,
-.modal-field textarea {
+.modal-field textarea,
+.modal-field select {
   width: 100%;
   box-sizing: border-box;
   padding: 10px 11px;
@@ -695,6 +710,112 @@ body.modal-open {
   font-size: 11px;
   font-weight: 500;
   line-height: 1.45;
+}
+
+.dataset-field-loader {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.dataset-field-loader small,
+.dataset-fieldset small {
+  color: #666;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.dataset-fields-status {
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 92, 158, 0.24);
+  border-radius: 10px;
+  background: #eef7ff;
+  color: #174a72;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.dataset-fields-status.is-error {
+  border-color: rgba(176, 0, 32, 0.35);
+  background: #fff1f3;
+  color: #9b001c;
+}
+
+.dataset-field-settings {
+  display: grid;
+  gap: 12px;
+}
+
+.dataset-fieldset {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.dataset-fieldset-title {
+  color: #222;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.dataset-field-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.dataset-field-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.dataset-field-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: #333;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.dataset-field-check span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dataset-field-order-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.dataset-field-order-actions button {
+  min-width: 28px;
+  padding: 4px 7px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+  background: #fff;
+  color: #333;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .modal-error {
