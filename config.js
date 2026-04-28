@@ -30,7 +30,7 @@ window.FIELD_MAP_CONFIG = {
 
   // 表示に使う列名。
   COLUMNS: {
-    id: "ID",
+    id: "記録ID",
     taxon: "同定",
     recordType: "記録の種類",
     repository: "所蔵",
@@ -41,7 +41,7 @@ window.FIELD_MAP_CONFIG = {
     year: "年",
     month: "月",
     day: "日",
-    date: "日付",
+    date: "表示する日付",
     remarks: "備考"
   }
 };

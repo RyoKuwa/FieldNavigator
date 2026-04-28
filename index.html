@@ -15,7 +15,7 @@
           <div id="title">調査用地図</div>
           <div id="status">起動中...</div>
         </div>
-        <button id="topbar-toggle-button" class="topbar-toggle-button" type="button" aria-label="上部パネルを閉じる" title="上部パネルを閉じる">×</button>
+        <button id="topbar-toggle-button" class="topbar-toggle-button" type="button" aria-label="メニューを閉じる" title="メニューを閉じる">×</button>
       </div>
       <div class="topbar-actions">
         <div class="control-row dataset-row">
@@ -41,7 +41,7 @@
         </div>
       </div>
     </header>
-    <button id="topbar-open-button" class="topbar-open-button" type="button" aria-label="上部パネルを開く" title="上部パネルを開く" hidden>☰</button>
+    <button id="topbar-open-button" class="topbar-open-button" type="button" aria-label="メニューを開く" title="メニューを開く" hidden>☰</button>
 
     <main id="map"></main>
 
@@ -53,13 +53,11 @@
           <div class="legend-row"><span class="legend-symbol star"></span>タイプ産地</div>
           <div class="legend-row"><span class="legend-symbol square"></span>シノニマイズされた種のタイプ産地</div>
           <div class="legend-row"><span class="legend-symbol hollow"></span>文献記録</div>
-          <div class="legend-row"><span class="legend-symbol filled"></span>本研究</div>
+          <div class="legend-row"><span class="legend-symbol filled"></span>本調査</div>
         </div>
         <div class="legend-block">
-          <details>
-            <summary class="legend-subsummary">同定ごとの色</summary>
-            <div id="taxon-legend"></div>
-          </details>
+          <div class="legend-title">分類群</div>
+          <div id="taxon-legend"></div>
         </div>
       </details>
     </section>
@@ -74,13 +72,23 @@
 
           <div class="modal-body">
             <details class="modal-help" open>
+              <summary>このページについて</summary>
+              <div class="modal-help-content">
+                <p>このページは、Googleスプレッドシートにまとめた調査記録を地図上に表示し、スマホで現在地と既存記録を見比べるための調査用地図です。</p>
+                <p>調査ごとにスプレッドシートURLを登録しておくと、上部の調査名プルダウンから切り替えて表示できます。</p>
+              </div>
+            </details>
+
+            <details class="modal-help" open>
               <summary>スプレッドシートの準備</summary>
               <div class="modal-help-content">
-                <p>ヘッダーは1行目に置いてください。必須ヘッダーは <code>ID</code>, <code>同定</code>, <code>記録の種類</code>, <code>Latitude</code>, <code>Longitude</code> です。</p>
+                <p>1行目にヘッダーを書いてください。必須ヘッダーは <code>記録ID</code>, <code>同定</code>, <code>記録の種類</code>, <code>Latitude</code>, <code>Longitude</code> です。</p>
                 <p>推奨ヘッダーは次の通りです。</p>
-                <code class="header-example">ID, 同定, 記録の種類, 所蔵, 標本ID, 場所, Latitude, Longitude, 年, 月, 日, 日付, 備考</code>
+                <code class="header-example">記録ID, 同定, 記録の種類, 所蔵, 標本ID, 場所, Latitude, Longitude, 年, 月, 日, 表示する日付, 備考</code>
                 <ul>
                   <li><code>Latitude</code> と <code>Longitude</code> は10進数で入力してください。</li>
+                  <li><code>記録の種類</code> は、<code>タイプ産地</code>、<code>シノニマイズされた種のタイプ産地</code>、<code>文献記録</code>、<code>本調査</code> のいずれかを入力してください。</li>
+                  <li><code>表示する日付</code> は、ポップアップに表示する日付文字列です。例：<code>19 Jun. 1985</code>、<code>15–16 Apr. 1987</code>、<code>Jun. 1985</code>、<code>1985</code></li>
                   <li>ブラウザから読み込めるよう、スプレッドシートはリンクを知っている人が閲覧できる状態、またはCSVとしてウェブに公開された状態にしてください。</li>
                 </ul>
               </div>

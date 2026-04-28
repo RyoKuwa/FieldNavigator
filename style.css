@@ -138,9 +138,6 @@ body,
   font-weight: 700;
 }
 
-.legend-subsummary {
-  margin-bottom: 4px;
-}
 
 .legend-block {
   margin-top: 8px;
@@ -941,5 +938,70 @@ body.modal-open {
     max-width: 110px;
     padding: 6px 8px;
     font-size: 12px;
+  }
+}
+
+/* Header close/open menu buttons */
+#topbar {
+  position: relative;
+  padding-right: 54px;
+}
+
+.topbar-head {
+  padding-right: 0;
+}
+
+.topbar-toggle-button {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 10px;
+  z-index: 13;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.16);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.topbar-toggle-button:hover,
+.topbar-open-button:hover {
+  background: #fff;
+}
+
+.topbar-open-button {
+  left: 10px;
+  top: calc(8px + env(safe-area-inset-top));
+  z-index: 13;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+}
+
+@media (min-width: 860px) {
+  #topbar {
+    grid-template-columns: minmax(180px, 0.8fr) minmax(460px, 1.6fr);
+    padding-right: 58px;
+  }
+}
+
+@media (max-width: 520px) {
+  #topbar {
+    padding-right: 52px;
+  }
+
+  .topbar-toggle-button {
+    right: 8px;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
   }
 }

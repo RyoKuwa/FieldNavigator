@@ -853,7 +853,7 @@
     if (text === "タイプ産地") return "type";
     if (text === "シノニマイズされた種のタイプ産地") return "synonymType";
     if (text === "文献記録") return "literature";
-    if (text === "本研究") return "thisStudy";
+    if (text === "本調査") return "thisStudy";
     return "unknown";
   }
 
@@ -1551,10 +1551,10 @@ ${error.message}`);
     appendPopupRow(content, "記録の種類", record.recordType);
     appendPopupRow(content, "場所", record.locality);
     appendCoordinateRow(content, record);
-    appendPopupRow(content, "日付", record.date || joinDateParts(record));
+    appendPopupRow(content, "表示する日付", record.date || joinDateParts(record));
     appendPopupRow(content, "所蔵", record.repository);
     appendPopupRow(content, "標本ID", record.specimenId);
-    appendPopupRow(content, "ID", record.id);
+    appendPopupRow(content, "記録ID", record.id);
     appendPopupRow(content, "備考", record.remarks);
 
     return content;
