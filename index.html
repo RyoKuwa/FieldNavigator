@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>調査用地図</title>
+  <title>調査結果地図</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -12,20 +12,20 @@
     <header id="topbar">
       <div class="topbar-head">
         <div class="topbar-main">
-          <div id="title">調査用地図</div>
+          <div id="title">調査結果地図</div>
           <div id="status">起動中...</div>
         </div>
         <button id="topbar-toggle-button" class="topbar-toggle-button" type="button" aria-label="メニューを閉じる" title="メニューを閉じる">×</button>
       </div>
       <div class="topbar-actions">
         <section class="menu-section dataset-section" aria-labelledby="dataset-section-title">
-          <div id="dataset-section-title" class="menu-section-title">調査データ</div>
+          <div id="dataset-section-title" class="menu-section-title">データ</div>
           <div class="control-row dataset-row">
             <label class="dataset-control" for="dataset-select">
               <span>調査名</span>
               <select id="dataset-select" aria-label="調査名"></select>
             </label>
-            <div class="dataset-button-group" aria-label="調査データの操作">
+            <div class="dataset-button-group" aria-label="データの操作">
               <button id="dataset-add-button" type="button">追加</button>
               <button id="dataset-edit-button" type="button">編集</button>
               <button id="dataset-delete-button" type="button">削除</button>
@@ -45,6 +45,7 @@
               </select>
             </label>
             <button id="reload-button" type="button">更新</button>
+            <button id="reload-cancel-button" class="secondary-button" type="button" hidden>中止</button>
           </div>
         </section>
         <section class="menu-section filter-section" aria-labelledby="filter-section-title">
@@ -84,7 +85,7 @@
       <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="dataset-modal-title">
         <form id="dataset-form">
           <div class="modal-header">
-            <h2 id="dataset-modal-title">調査名を追加</h2>
+            <h2 id="dataset-modal-title">調査結果を追加</h2>
             <button id="dataset-modal-close" class="modal-close-button" type="button" aria-label="閉じる">×</button>
           </div>
 
@@ -110,12 +111,25 @@
 
             <div class="dataset-field-loader">
               <button id="dataset-load-fields-button" type="button" class="secondary-button compact-button">列を読み込む</button>
-              <small>スプレッドシートの1行目のヘッダーを読み込み、ポップアップ・フィルター・色分けに使う項目を選択します。</small>
+              <small>スプレッドシートの1行目のヘッダーを読み込み、位置情報・ポップアップ・フィルター・色分けに使う項目を選択します。</small>
             </div>
 
             <div id="dataset-fields-status" class="dataset-fields-status" role="status" hidden></div>
 
             <div id="dataset-field-settings" class="dataset-field-settings" hidden>
+              <section class="dataset-fieldset" aria-labelledby="dataset-location-fields-title">
+                <div id="dataset-location-fields-title" class="dataset-fieldset-title">位置情報に使用する列</div>
+                <small>地図に表示するため、緯度の値が入った列と経度の値が入った列を選択します。列名は自由です。</small>
+                <label class="modal-field" for="dataset-latitude-field-select">
+                  <span>緯度として使う列</span>
+                  <select id="dataset-latitude-field-select"></select>
+                </label>
+                <label class="modal-field" for="dataset-longitude-field-select">
+                  <span>経度として使う列</span>
+                  <select id="dataset-longitude-field-select"></select>
+                </label>
+              </section>
+
               <label class="modal-field" for="dataset-color-field-select">
                 <span>色分けに使用する項目</span>
                 <select id="dataset-color-field-select"></select>
@@ -155,12 +169,12 @@
     <div id="register-modal" class="modal-overlay" hidden>
       <div class="modal-panel register-modal-panel" role="dialog" aria-modal="true" aria-labelledby="register-modal-title">
         <div class="modal-header">
-          <h2 id="register-modal-title">調査を登録</h2>
+          <h2 id="register-modal-title">調査結果を登録</h2>
           <button id="register-modal-close" class="modal-close-button" type="button" aria-label="閉じる">×</button>
         </div>
         <div class="modal-body">
-          <p>この調査を登録しますか？</p>
-          <p>登録すると、この端末の調査一覧に追加され、次回から調査名プルダウンで選択できます。</p>
+          <p>この調査結果を登録しますか？</p>
+          <p>登録すると、次回からプルダウンで選択できます。</p>
           <p>スプレッドシートの記録データそのものは保存されません。</p>
           <div id="register-modal-error" class="modal-error" role="alert" hidden></div>
         </div>
@@ -180,49 +194,131 @@
         <div class="modal-body help-modal-body">
           <section class="help-content-section">
             <h3>このページについて</h3>
-            <p>Googleスプレッドシートにまとめた調査記録を地図上に表示するページです。スマホで現在地と既存記録を見比べるための調査用地図として使います。</p>
-            <p>調査ごとにスプレッドシートURLを登録しておくと、調査名プルダウンから切り替えて表示できます。</p>
+            <p>Googleスプレッドシートにまとめた記録データを地図上に表示するための閲覧用ウェブ地図です。スマホで現在地と既存記録を見比べる用途を想定しています。</p>
+            <p>調査結果ごとにスプレッドシートURLを登録しておくと、プルダウンから切り替えて表示できます。</p>
           </section>
 
           <section class="help-content-section">
-            <h3>基本的な使い方</h3>
-            <ol>
-              <li>Googleスプレッドシートを用意します。</li>
-              <li>1行目にヘッダーを書いてください。</li>
-              <li>スプレッドシートを、リンクを知っている人が閲覧できる状態、またはCSVとしてウェブに公開された状態にします。</li>
-              <li>メニューの「追加」から調査名、スプレッドシートURL、シート名を登録します。</li>
-              <li>調査名を選ぶと、記録が地図上に表示されます。</li>
-            </ol>
+            <h3>1. スプレッドシートを準備する</h3>
+            <p>まず、記録データを入力したGoogleスプレッドシートを用意します。1行目には列名を入力してください。</p>
+            <p>地図に記録を表示するには、緯度と経度の情報が必要です。スプレッドシートを追加または編集するときに、どの列を緯度として使うか、どの列を経度として使うかを選択できます。</p>
+            <div class="help-table-wrap">
+              <table class="help-table">
+                <thead>
+                  <tr><th>必要な情報</th><th>説明</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>緯度</td><td>記録地点の緯度です。10進数で入力します。</td></tr>
+                  <tr><td>経度</td><td>記録地点の経度です。10進数で入力します。</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><code>緯度</code> / <code>経度</code>、<code>Latitude</code> / <code>Longitude</code>、<code>lat</code> / <code>lon</code>、<code>decimalLatitude</code> / <code>decimalLongitude</code> などは、大文字・小文字の違いを無視して自動推定します。<code>採集緯度</code> や <code>WGS84_Longitude</code> のように、列名にこれらの語が含まれる場合も候補にします。推定結果は後から変更できます。</p>
           </section>
 
           <section class="help-content-section">
-            <h3>共有リンクから開いた調査</h3>
-            <p>共有リンクから開いた調査は、最初は閲覧のみです。この端末の調査一覧に残したい場合は、「登録」を押してください。</p>
-            <p>登録すると、次回から調査名プルダウンで選択できます。スプレッドシートの記録データそのものは保存されません。</p>
+            <h3>推奨ヘッダー</h3>
+            <p>推奨ヘッダーは、このアプリの標準機能で扱いやすいように想定している列名の例です。必須ではありませんが、列名をそろえておくと、ポップアップ、フィルター、色分け、マーカー形状の設定が分かりやすくなります。</p>
+            <div class="help-table-wrap">
+              <table class="help-table">
+                <thead>
+                  <tr><th>列名</th><th>用途</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>記録ID</code></td><td>各記録を識別するためのIDです。</td></tr>
+                  <tr><td><code>分類群</code></td><td>種名・属名など、記録対象の分類群です。</td></tr>
+                  <tr><td><code>記録の種類</code></td><td>「タイプ産地」、「文献記録」、「作成者の記録」など、記録の種類です。マーカー形状に使われます。</td></tr>
+                  <tr><td><code>所蔵</code></td><td>標本の所蔵先です。</td></tr>
+                  <tr><td><code>標本ID</code></td><td>標本番号・登録番号などです。</td></tr>
+                  <tr><td><code>場所</code></td><td>採集地・記録地名です。</td></tr>
+                  <tr><td><code>緯度</code></td><td>地図表示に使用する緯度です。</td></tr>
+                  <tr><td><code>経度</code></td><td>地図表示に使用する経度です。</td></tr>
+                  <tr><td><code>年</code></td><td>記録年です。フィルターや整理に使えます。</td></tr>
+                  <tr><td><code>月</code></td><td>記録月です。フィルターや整理に使えます。</td></tr>
+                  <tr><td><code>日</code></td><td>記録日です。フィルターや整理に使えます。</td></tr>
+                  <tr><td><code>日付</code></td><td>ポップアップなどに表示する日付表記です。</td></tr>
+                  <tr><td><code>備考</code></td><td>補足情報です。</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>Googleスプレッドシートの1行目にそのまま貼り付ける場合は、次の行をコピーしてA1セルに貼り付けてください。タブ区切りなので、各項目が別々の列に入ります。</p>
+            <pre class="header-copy-line"><code>記録ID	分類群	記録の種類	所蔵	標本ID	場所	緯度	経度	年	月	日	日付	備考</code></pre>
           </section>
 
           <section class="help-content-section">
-            <h3>フィルター</h3>
-            <p>スプレッドシートの各項目ごとに、表示する記録を絞り込めます。</p>
-            <p>各項目は1列で表示され、検索欄から値を探してチェックの有無を調整できます。列が増減した場合も、読み込んだヘッダーに合わせてフィルター項目が作られます。</p>
-            <p>同じ項目内では複数選択ができます。異なる項目を同時に指定した場合は、すべての条件に合う記録だけを表示します。</p>
-            <p>フィルター適用後の記録だけで、選択した色分け項目の色、近接マーカー、分割表示、凡例を再計算します。</p>
-            <p>近くの別マーカーは、ポップアップ内の「前へ」「次へ」でも切り替えられます。切り替え時は、吹き出し先も切り替え先の表示マーカー中心へ移動します。</p>
-            <p>色分け項目は調査データの追加・編集画面で選択します。未選択の場合、マーカーは灰色で表示されます。</p>
-            <p>ポップアップタイトルに使用する項目は、色分け項目とは別に選択できます。未選択の場合、ポップアップタイトルは表示されません。</p>
-            <p>フィルターは調査ごとにこの端末へ保存されます。</p>
-          </section>
-
-          <section class="help-content-section">
-            <h3>必要な列</h3>
-            <p>必須ヘッダーは <code>記録ID</code>, <code>分類群</code>, <code>記録の種類</code>, <code>緯度</code>, <code>経度</code> です。</p>
-            <p>推奨ヘッダーは次の通りです。</p>
-            <code class="header-example">記録ID, 分類群, 記録の種類, 所蔵, 標本ID, 場所, 緯度, 経度, 年, 月, 日, 表示する日付, 備考</code>
+            <h3>記録の種類と日付の例</h3>
+            <p><code>記録の種類</code> には、マーカー形状を切り替えるため、次のような値を入力します。</p>
             <ul>
-              <li><code>緯度</code> と <code>経度</code> は10進数で入力してください。</li>
-              <li><code>記録の種類</code> は、<code>タイプ産地</code>、<code>シノニマイズされた種のタイプ産地</code>、<code>文献記録</code>、<code>本調査</code> のいずれかを入力してください。</li>
-              <li><code>表示する日付</code> は、ポップアップに表示する日付文字列です。例：<code>19 Jun. 1985</code>、<code>15–16 Apr. 1987</code>、<code>Jun. 1985</code>、<code>1985</code></li>
+              <li><code>タイプ産地</code></li>
+              <li><code>シノニマイズされた種のタイプ産地</code></li>
+              <li><code>文献記録</code></li>
+              <li><code>作成者の記録</code>（または、<code>本調査</code>）</li>
+              <li><code>不確かな記録</code></li>
+              <li>その他の値（上記に当てはまらない記録）</li>
             </ul>
+            <p><code>日付</code> には、人が読むための日付文字列を入力します。例：<code>19 Jun. 1985</code>、<code>15–16 Apr. 1987</code>、<code>Jun. 1985</code>、<code>1985</code></p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>2. スプレッドシートを共有可能にする</h3>
+            <p>通常のGoogleスプレッドシートURLを登録する場合は、リンクを知っている人が閲覧できる共有設定にしてください。公開CSV URLを登録する場合は、CSVとしてウェブに公開されたURLを使用してください。</p>
+            <p>希少種や未発表データなど、公開範囲に注意が必要な位置情報を含む場合は、共有設定を慎重に確認してください。</p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>3. アプリにデータを追加する</h3>
+            <ol>
+              <li>メニューの「追加」から入力フォームを開きます。</li>
+              <li>調査名、GoogleスプレッドシートURL、シート名を入力します。</li>
+              <li>「列を読み込む」を押して、1行目の列名を読み込みます。</li>
+              <li>緯度として使う列と経度として使う列を確認します。必要に応じて変更してください。</li>
+              <li>表示項目を設定して保存します。</li>
+              <li>プルダウンから選ぶと、記録が地図上に表示されます。</li>
+            </ol>
+            <p>登録情報は、この端末・このブラウザの中に保存されます。別の端末では再登録が必要です。</p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>4. 表示項目を設定する</h3>
+            <p>スプレッドシートを追加または編集するときに、地図上での表示方法を調整できます。</p>
+            <div class="help-table-wrap">
+              <table class="help-table">
+                <thead>
+                  <tr><th>設定項目</th><th>説明</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>緯度として使う列・経度として使う列</td><td>地図上に記録を表示するために使う位置情報の列です。列名は自由に選べます。</td></tr>
+                  <tr><td>色分けに使用する項目</td><td>マーカーの色を分けるために使う列です。未選択の場合、マーカーは灰色で表示されます。</td></tr>
+                  <tr><td>ポップアップタイトルに使用する項目</td><td>マーカーをクリックしたときに表示されるポップアップの見出しに使う列です。未選択の場合、タイトルは表示されません。</td></tr>
+                  <tr><td>ポップアップ本文に表示する項目</td><td>ポップアップ本文に表示する列です。表示順も変更できます。</td></tr>
+                  <tr><td>フィルターに使用する項目</td><td>地図上の記録を絞り込むために使う列です。</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>ポップアップは、地図上のマーカーをクリックしたときに表示される情報欄です。タイトル項目でも、本文でチェックされていれば本文にも表示されます。</p>
+            <p>地図表示時には、位置情報、色分け、ポップアップ、フィルター、マーカー形状に必要な列だけを読み込みます。大きいスプレッドシートでは、使わないポップアップ項目やフィルター項目を外すと読み込みが速くなる場合があります。</p>
+            <p>読み込み中は、列情報の取得、データ読み込み、地図用データ作成、マーカー描画の段階を表示します。時間がかかる場合は「中止」ボタンで読み込みを止められます。</p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>5. 地図を操作する</h3>
+            <p>マーカーの形は <code>記録の種類</code> に応じて変わります。タイプ産地は星、シノニマイズされた種のタイプ産地は四角、作成者の記録（または、本調査）は塗りつぶし丸、文献記録は中空丸、不確かな記録は✕印、その他は△で表示されます。</p>
+            <p>近い位置に複数のマーカーがある場合は、代表マーカーとしてまとめて表示します。ポップアップ内の「前へ」「次へ」で、同じ代表マーカー内の記録や近くの別マーカーの記録に切り替えられます。</p>
+            <p>右上の現在地ボタンで端末の現在地を表示できます。現在地ボタンの下にあるフォーカスボタンを押すと、現在表示中の記録全体が入る範囲へ地図が移動します。</p>
+            <p>ポップアップはマーカーより前面に表示されます。切り替え時は、吹き出し先も切り替え先の表示マーカー中心へ移動します。</p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>6. フィルターと凡例</h3>
+            <p>メニューの「フィルター」から、選択した項目ごとに表示する記録を絞り込めます。同じ項目内では複数選択ができ、異なる項目を同時に指定した場合は、すべての条件に合う記録だけを表示します。検索欄で候補を絞り込んだ場合、「表示項目をすべて選択」「表示項目を解除」は、現在表示されている候補だけに適用されます。</p>
+            <p>フィルター適用後は、表示対象の記録だけで色、近接マーカー、分割表示、凡例を再計算します。凡例には、現在表示中の色分け値と記録の種類だけを表示します。</p>
+            <p>メニューから開く入力画面や選択画面は、凡例やポップアップより前面に表示されます。</p>
+          </section>
+
+          <section class="help-content-section">
+            <h3>7. 調査結果を共有する</h3>
+            <p>共有リンクで開いた調査結果を一覧として保存したい場合は、「登録」を押してください。</p>
+            <p>登録すると、次回からプルダウンで選択できます。スプレッドシートの記録データそのものは保存されません。</p>
           </section>
         </div>
         <div class="modal-actions">
@@ -240,8 +336,8 @@
         <div class="modal-body filter-modal-body">
           <p class="modal-note">チェックした値を含む記録だけを表示します。検索欄で項目を絞り込み、チェックの有無を調整できます。同じ項目内はOR条件、異なる項目間はAND条件です。</p>
           <div class="filter-toolbar" aria-label="フィルター操作">
-            <button id="filter-select-all-button" type="button" class="secondary-button compact-button">すべて選択</button>
-            <button id="filter-select-none-button" type="button" class="secondary-button compact-button">すべて解除</button>
+            <button id="filter-select-all-button" type="button" class="secondary-button compact-button">表示項目をすべて選択</button>
+            <button id="filter-select-none-button" type="button" class="secondary-button compact-button">表示項目を解除</button>
             <button id="filter-reset-button" type="button" class="secondary-button compact-button">リセット</button>
           </div>
           <div id="filter-options" class="filter-options"></div>

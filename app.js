@@ -3,22 +3,18 @@
 
   const CONFIG = window.FIELD_MAP_CONFIG;
   const COLUMNS = CONFIG.COLUMNS;
-  const REQUIRED_HEADERS = [
-    COLUMNS.id,
-    COLUMNS.taxon,
-    COLUMNS.recordType,
-    COLUMNS.latitude,
-    COLUMNS.longitude
-  ];
+  const REQUIRED_HEADERS = [];
 
   const LEGACY_TAXON_HEADER = "同定";
   const LEGACY_LATITUDE_HEADER = "Latitude";
   const LEGACY_LONGITUDE_HEADER = "Longitude";
+  const LEGACY_DATE_HEADER = "表示する日付";
   const REJECTED_TAXON_HEADER = "Taxon";
   const VIRTUAL_COORDINATES_FIELD = "__coordinates";
   const DEFAULT_MARKER_COLOR = "#666666";
   const POPUP_NEARBY_MARKER_PIXELS = Number(CONFIG.POPUP_NEARBY_MARKER_PIXELS) || Number(CONFIG.PROXIMITY_PIXELS) || 10;
-  const POPUP_CLICK_THROUGH_MARKER_PIXELS = Number(CONFIG.POPUP_CLICK_THROUGH_MARKER_PIXELS) || 14;
+  const LOAD_TIMEOUT_MS = Number(CONFIG.LOAD_TIMEOUT_MS) || 30000;
+  const LOAD_SLOW_NOTICE_MS = Number(CONFIG.LOAD_SLOW_NOTICE_MS) || 10000;
 
   const FILTER_FIELD_LABEL_OVERRIDES = {
     [COLUMNS.taxon]: "分類群",
@@ -26,7 +22,9 @@
     [COLUMNS.latitude]: "緯度",
     [LEGACY_LATITUDE_HEADER]: "緯度",
     [COLUMNS.longitude]: "経度",
-    [LEGACY_LONGITUDE_HEADER]: "経度"
+    [LEGACY_LONGITUDE_HEADER]: "経度",
+    [COLUMNS.date]: "日付",
+    [LEGACY_DATE_HEADER]: "日付"
   };
 
   const DEFAULT_POPUP_FIELDS = [
@@ -53,20 +51,22 @@
   const EMPTY_FILTER_VALUE = "__FIELD_MAP_EMPTY__";
 
   const RECORD_TYPE_PRIORITY = {
-    // 代表記録の選択用。形状を最優先にするため、星 > 四角 > 丸の順にする。
+    // 代表記録の選択用。形状を最優先にするため、星 > 四角 > 丸 > ✕ > △ の順にする。
     type: 300,
     synonymType: 200,
     thisStudy: 100,
-    unknown: 100,
-    literature: 90
+    literature: 90,
+    uncertain: 80,
+    unknown: 70
   };
 
   const RECORD_TYPE_LEGEND_ITEMS = [
     { kind: "type", label: "タイプ産地" },
     { kind: "synonymType", label: "シノニマイズされた種のタイプ産地" },
-    { kind: "thisStudy", label: "本調査" },
-    { kind: "unknown", label: "その他" },
-    { kind: "literature", label: "文献記録" }
+    { kind: "thisStudy", label: "作成者の記録" },
+    { kind: "literature", label: "文献記録" },
+    { kind: "uncertain", label: "不確かな記録" },
+    { kind: "unknown", label: "その他" }
   ];
 
   const DETAILED_MAP_ATTRIBUTION = "Imagery © <a href=\"https://www.esri.com/en-us/home\" target=\"_blank\" rel=\"noopener\">Esri</a>";
@@ -117,7 +117,10 @@
     activeDatasetId: null,
     sharedDatasetIdFromUrl: null,
     lastLoadedAt: null,
-    skippedRows: 0
+    skippedRows: 0,
+    isLoading: false,
+    currentLoadJob: null,
+    focusButton: null
   };
 
   const appEl = document.getElementById("app");
@@ -126,6 +129,7 @@
   const topbarToggleButton = document.getElementById("topbar-toggle-button");
   const topbarOpenButton = document.getElementById("topbar-open-button");
   const reloadButton = document.getElementById("reload-button");
+  const reloadCancelButton = document.getElementById("reload-cancel-button");
   const taxonLegendEl = document.getElementById("taxon-legend");
   const recordTypeLegendEl = document.getElementById("record-type-legend");
   const basemapSelect = document.getElementById("basemap-select");
@@ -173,6 +177,8 @@
   const datasetLoadFieldsButton = document.getElementById("dataset-load-fields-button");
   const datasetFieldSettings = document.getElementById("dataset-field-settings");
   const datasetFieldsStatus = document.getElementById("dataset-fields-status");
+  const datasetLatitudeFieldSelect = document.getElementById("dataset-latitude-field-select");
+  const datasetLongitudeFieldSelect = document.getElementById("dataset-longitude-field-select");
   const datasetColorFieldSelect = document.getElementById("dataset-color-field-select");
   const datasetPopupTitleFieldSelect = document.getElementById("dataset-popup-title-field-select");
   const datasetPopupFieldsList = document.getElementById("dataset-popup-fields-list");
@@ -183,10 +189,80 @@
   const ACTIVE_DATASET_STORAGE_KEY = CONFIG.ACTIVE_DATASET_STORAGE_KEY || "fieldMap.activeDatasetId.v1";
   const TOPBAR_COLLAPSED_STORAGE_KEY = CONFIG.TOPBAR_COLLAPSED_STORAGE_KEY || "fieldMap.topbarCollapsed.v1";
   const FILTERS_STORAGE_KEY_PREFIX = CONFIG.FILTERS_STORAGE_KEY_PREFIX || "fieldMap.filters.v1";
-  titleEl.textContent = CONFIG.TITLE || "調査用地図";
+  titleEl.textContent = CONFIG.TITLE || "調査結果地図";
 
   function setStatus(message) {
     statusEl.textContent = message;
+  }
+
+  function makeAbortError() {
+    const error = new Error("読み込みを中止しました。");
+    error.name = "AbortError";
+    return error;
+  }
+
+  function isAbortError(error) {
+    return error?.name === "AbortError" || error?.message === "読み込みを中止しました。";
+  }
+
+  function createLoadJob() {
+    return {
+      aborted: false,
+      abortController: typeof AbortController !== "undefined" ? new AbortController() : null,
+      cleanupHandlers: new Set(),
+      timers: new Set()
+    };
+  }
+
+  function addLoadTimer(job, callback, delay) {
+    if (!job) return null;
+    const timerId = window.setTimeout(() => {
+      job.timers.delete(timerId);
+      if (!job.aborted && state.currentLoadJob === job) callback();
+    }, delay);
+    job.timers.add(timerId);
+    return timerId;
+  }
+
+  function clearLoadJob(job) {
+    if (!job) return;
+    job.timers.forEach((timerId) => window.clearTimeout(timerId));
+    job.timers.clear();
+    job.cleanupHandlers.forEach((handler) => {
+      try { handler(); } catch (error) { console.warn(error); }
+    });
+    job.cleanupHandlers.clear();
+  }
+
+  function throwIfLoadCancelled(job) {
+    if (job?.aborted || (job && state.currentLoadJob !== job)) {
+      throw makeAbortError();
+    }
+  }
+
+  function setLoadingUi(loading) {
+    state.isLoading = Boolean(loading);
+    if (reloadButton) reloadButton.disabled = loading || !getActiveDataset();
+    if (reloadCancelButton) reloadCancelButton.hidden = !loading;
+    if (datasetSelect) datasetSelect.disabled = loading || datasetSelect.options.length === 0;
+    if (datasetAddButton) datasetAddButton.disabled = loading;
+    if (datasetEditButton) datasetEditButton.disabled = loading || !isDatasetRegistered();
+    if (datasetDeleteButton) datasetDeleteButton.disabled = loading || !isDatasetRegistered();
+    if (datasetShareButton) datasetShareButton.disabled = loading || !getActiveDataset();
+    if (datasetRegisterButton) datasetRegisterButton.disabled = loading || !getActiveDataset() || isDatasetRegistered();
+    if (filterButton) filterButton.disabled = loading || state.rows.length === 0;
+    updateFocusControlState();
+  }
+
+  function cancelActiveLoad(showMessage = true) {
+    const job = state.currentLoadJob;
+    if (!job) return;
+    job.aborted = true;
+    if (job.abortController) job.abortController.abort();
+    clearLoadJob(job);
+    state.currentLoadJob = null;
+    setLoadingUi(false);
+    if (showMessage) setStatus("読み込みを中止しました。");
   }
 
   function resizeMapSoon() {
@@ -232,6 +308,8 @@
           csvUrl: normalizeText(dataset.csvUrl),
           createdAt: normalizeText(dataset.createdAt),
           updatedAt: normalizeText(dataset.updatedAt),
+          latitudeField: normalizeDatasetFieldName(dataset.latitudeField),
+          longitudeField: normalizeDatasetFieldName(dataset.longitudeField),
           colorField: normalizeDatasetFieldName(dataset.colorField),
           popupTitleField: normalizeDatasetFieldName(dataset.popupTitleField),
           popupFields: normalizeOptionalFieldList(dataset.popupFields),
@@ -295,6 +373,8 @@
       spreadsheetId,
       sheetName,
       csvUrl,
+      latitudeField: normalizeDatasetFieldName(params.get("fm_lat")),
+      longitudeField: normalizeDatasetFieldName(params.get("fm_lng")),
       colorField: normalizeDatasetFieldName(params.get("fm_color")),
       popupTitleField: normalizeDatasetFieldName(params.get("fm_popup_title")),
       popupFields: parseFieldListParam(params.get("fm_popup")),
@@ -343,6 +423,7 @@
     if (field === LEGACY_TAXON_HEADER) return COLUMNS.taxon;
     if (field === LEGACY_LATITUDE_HEADER) return COLUMNS.latitude;
     if (field === LEGACY_LONGITUDE_HEADER) return COLUMNS.longitude;
+    if (field === LEGACY_DATE_HEADER) return COLUMNS.date;
     return field;
   }
 
@@ -391,6 +472,10 @@
         normalized = LEGACY_LONGITUDE_HEADER;
       } else if (field === LEGACY_LONGITUDE_HEADER && available.has(COLUMNS.longitude)) {
         normalized = COLUMNS.longitude;
+      } else if (field === COLUMNS.date && !available.has(field) && available.has(LEGACY_DATE_HEADER)) {
+        normalized = LEGACY_DATE_HEADER;
+      } else if (field === LEGACY_DATE_HEADER && available.has(COLUMNS.date)) {
+        normalized = COLUMNS.date;
       }
       if (normalized === VIRTUAL_COORDINATES_FIELD && includeVirtual) {
         if (!seen.has(normalized)) {
@@ -404,6 +489,91 @@
       result.push(normalized);
     });
     return result;
+  }
+
+  const LATITUDE_FIELD_CANDIDATES = [
+    "緯度",
+    "decimalLatitude",
+    "Latitude",
+    "lat",
+    "採集緯度"
+  ];
+
+  const LONGITUDE_FIELD_CANDIDATES = [
+    "経度",
+    "decimalLongitude",
+    "Longitude",
+    "lon",
+    "lng",
+    "採集経度"
+  ];
+
+  function compactHeaderName(value) {
+    return String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_\-–—/\\（）()［］[\]{}:：,，.．]+/g, "");
+  }
+
+  function headerTokens(value) {
+    return String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .split(/[\s_\-–—/\\（）()［］[\]{}:：,，.．]+/g)
+      .filter(Boolean);
+  }
+
+  function findHeaderCandidate(headers, candidates) {
+    const available = availableSheetFields(headers);
+    const candidateCompacts = candidates.map((candidate) => compactHeaderName(candidate)).filter(Boolean);
+
+    for (const header of available) {
+      if (candidateCompacts.includes(compactHeaderName(header))) return header;
+    }
+
+    const longCandidates = candidateCompacts.filter((candidate) => candidate.length >= 4 || /[ぁ-んァ-ヶ一-龠]/.test(candidate));
+    for (const header of available) {
+      const compact = compactHeaderName(header);
+      if (longCandidates.some((candidate) => compact.includes(candidate))) return header;
+    }
+
+    const shortCandidates = candidateCompacts.filter((candidate) => candidate.length < 4 && !/[ぁ-んァ-ヶ一-龠]/.test(candidate));
+    for (const header of available) {
+      const tokens = headerTokens(header);
+      if (shortCandidates.some((candidate) => tokens.includes(candidate))) return header;
+    }
+
+    for (const header of available) {
+      const compact = compactHeaderName(header);
+      if (shortCandidates.some((candidate) => compact.startsWith(candidate) || compact.endsWith(candidate))) return header;
+    }
+
+    return "";
+  }
+  function inferLatitudeField(headers) {
+    return findHeaderCandidate(headers, LATITUDE_FIELD_CANDIDATES);
+  }
+
+  function inferLongitudeField(headers) {
+    return findHeaderCandidate(headers, LONGITUDE_FIELD_CANDIDATES);
+  }
+
+  function configuredLatitudeField(dataset, headers = state.headers) {
+    const field = normalizeDatasetFieldName(dataset?.latitudeField);
+    if (field) {
+      const normalized = normalizeFieldsForHeaders([field], headers)[0];
+      if (normalized) return normalized;
+    }
+    return inferLatitudeField(headers);
+  }
+
+  function configuredLongitudeField(dataset, headers = state.headers) {
+    const field = normalizeDatasetFieldName(dataset?.longitudeField);
+    if (field) {
+      const normalized = normalizeFieldsForHeaders([field], headers)[0];
+      if (normalized) return normalized;
+    }
+    return inferLongitudeField(headers);
   }
 
   function fieldLabel(field) {
@@ -469,6 +639,11 @@
     const now = new Date().toISOString();
     const hasPopupFields = Array.isArray(settings.popupFields);
     const hasFilterFields = Array.isArray(settings.filterFields);
+    const latitudeField = normalizeDatasetFieldName(settings.latitudeField ?? existing?.latitudeField);
+    const longitudeField = normalizeDatasetFieldName(settings.longitudeField ?? existing?.longitudeField);
+    if (settings.requireLocationFields && (!latitudeField || !longitudeField)) {
+      throw new Error("緯度として使う列と経度として使う列を選択してください。");
+    }
     return {
       id: existing?.id || makeDatasetId(name),
       name,
@@ -476,6 +651,8 @@
       spreadsheetId,
       sheetName,
       csvUrl: spreadsheetId ? "" : sourceUrl,
+      latitudeField,
+      longitudeField,
       colorField: normalizeDatasetFieldName(settings.colorField ?? existing?.colorField),
       popupTitleField: normalizeDatasetFieldName(settings.popupTitleField ?? existing?.popupTitleField),
       popupFields: hasPopupFields ? uniqueFieldList(settings.popupFields) : normalizeOptionalFieldList(existing?.popupFields),
@@ -607,8 +784,12 @@
       return;
     }
 
+    const latitudeField = configuredLatitudeField(existing, datasetModalHeaders);
+    const longitudeField = configuredLongitudeField(existing, datasetModalHeaders);
     const colorField = configuredColorField(existing, datasetModalHeaders);
     const popupTitleField = configuredPopupTitleField(existing, datasetModalHeaders);
+    populateDatasetFieldSelect(datasetLatitudeFieldSelect, datasetModalHeaders, latitudeField, "選択してください");
+    populateDatasetFieldSelect(datasetLongitudeFieldSelect, datasetModalHeaders, longitudeField, "選択してください");
     populateDatasetFieldSelect(datasetColorFieldSelect, datasetModalHeaders, colorField);
     populateDatasetFieldSelect(datasetPopupTitleFieldSelect, datasetModalHeaders, popupTitleField);
 
@@ -626,7 +807,7 @@
     renderDatasetCheckboxList(datasetFilterFieldsList, filterAvailable, filterSelected);
 
     setDatasetFieldSettingsVisible(true);
-    setDatasetFieldsStatus("列を読み込みました。必要に応じてタイトル項目・表示項目・フィルター項目・色分け項目を変更してください。", false);
+    setDatasetFieldsStatus("列を読み込みました。位置情報に使用する列、タイトル項目、表示項目、フィルター項目、色分け項目を変更できます。", false);
   }
 
   async function loadDatasetFieldsForModal() {
@@ -648,8 +829,7 @@
     datasetLoadFieldsButton.disabled = true;
     setDatasetFieldsStatus("列を読み込み中...", false);
     try {
-      const { headers } = await loadSheetRows(draftDataset);
-      validateHeaders(headers);
+      const { headers } = await loadSheetHeaders(draftDataset);
       renderDatasetFieldSettings(headers, draftDataset);
     } catch (error) {
       console.error(error);
@@ -671,6 +851,8 @@
     const settingsVisible = datasetFieldSettings && !datasetFieldSettings.hidden;
     if (!settingsVisible) {
       return {
+        latitudeField: datasetModalExisting?.latitudeField || "",
+        longitudeField: datasetModalExisting?.longitudeField || "",
         colorField: datasetModalExisting?.colorField || "",
         popupTitleField: datasetModalExisting?.popupTitleField || "",
         popupFields: Array.isArray(datasetModalExisting?.popupFields) ? datasetModalExisting.popupFields : null,
@@ -679,6 +861,9 @@
     }
 
     return {
+      latitudeField: datasetLatitudeFieldSelect?.value || "",
+      longitudeField: datasetLongitudeFieldSelect?.value || "",
+      requireLocationFields: true,
       colorField: datasetColorFieldSelect?.value || "",
       popupTitleField: datasetPopupTitleFieldSelect?.value || "",
       popupFields: readCheckedDatasetFields(datasetPopupFieldsList) || [],
@@ -706,7 +891,7 @@
     }
 
     datasetModalExisting = existing;
-    datasetModalTitle.textContent = existing ? "調査名を編集" : "調査名を追加";
+    datasetModalTitle.textContent = existing ? "調査結果を編集" : "調査結果を追加";
     datasetModalSubmitButton.textContent = existing ? "保存" : "登録";
     datasetNameInput.value = existing?.name || "";
     datasetUrlInput.value = existing?.sourceUrl || existing?.spreadsheetId || existing?.csvUrl || "";
@@ -774,6 +959,7 @@
       datasetSelect.appendChild(option);
       datasetSelect.disabled = true;
       if (reloadButton) reloadButton.disabled = true;
+      if (reloadCancelButton) reloadCancelButton.hidden = true;
       if (datasetEditButton) datasetEditButton.disabled = true;
       if (datasetDeleteButton) datasetDeleteButton.disabled = true;
       if (datasetShareButton) datasetShareButton.disabled = true;
@@ -784,6 +970,7 @@
         datasetRegisterButton.classList.add("is-inactive");
       }
       updateFilterSummary();
+      updateFocusControlState();
       return;
     }
 
@@ -796,21 +983,27 @@
 
     const current = getActiveDataset();
     datasetSelect.value = state.activeDatasetId;
-    datasetSelect.disabled = false;
+    datasetSelect.disabled = state.isLoading;
 
     const registered = current ? isDatasetRegistered(current) : false;
     const hasActive = !!current;
 
-    if (reloadButton) reloadButton.disabled = !hasActive;
-    if (datasetEditButton) datasetEditButton.disabled = !registered;
-    if (datasetDeleteButton) datasetDeleteButton.disabled = !registered;
-    if (datasetShareButton) datasetShareButton.disabled = !hasActive;
-    if (filterButton) filterButton.disabled = state.rows.length === 0;
+    if (reloadButton) reloadButton.disabled = !hasActive || state.isLoading;
+    if (reloadCancelButton) reloadCancelButton.hidden = !state.isLoading;
+    if (datasetEditButton) datasetEditButton.disabled = state.isLoading || !registered;
+    if (datasetDeleteButton) datasetDeleteButton.disabled = state.isLoading || !registered;
+    if (datasetShareButton) datasetShareButton.disabled = state.isLoading || !hasActive;
+    if (filterButton) filterButton.disabled = state.isLoading || state.rows.length === 0;
     updateFilterSummary();
+    updateFocusControlState();
 
     if (datasetRegisterButton) {
       datasetRegisterButton.classList.remove("is-registered", "is-registerable", "is-inactive");
       if (!hasActive) {
+        datasetRegisterButton.textContent = "登録";
+        datasetRegisterButton.disabled = true;
+        datasetRegisterButton.classList.add("is-inactive");
+      } else if (state.isLoading) {
         datasetRegisterButton.textContent = "登録";
         datasetRegisterButton.disabled = true;
         datasetRegisterButton.classList.add("is-inactive");
@@ -963,6 +1156,7 @@
       filterButton.disabled = total === 0;
       filterButton.classList.toggle("is-filtered", hasActiveFilter());
     }
+    updateFocusControlState();
   }
 
   function refreshFilteredRows({ save = false, rerender = true, fit = false } = {}) {
@@ -1042,12 +1236,12 @@
 
       const selectAll = document.createElement("button");
       selectAll.type = "button";
-      selectAll.textContent = "すべて";
+      selectAll.textContent = "表示項目をすべて選択";
       selectAll.addEventListener("click", () => setFieldCheckboxes(field.key, true));
 
       const selectNone = document.createElement("button");
       selectNone.type = "button";
-      selectNone.textContent = "解除";
+      selectNone.textContent = "表示項目を解除";
       selectNone.addEventListener("click", () => setFieldCheckboxes(field.key, false));
 
       fieldActions.append(selectAll, selectNone);
@@ -1089,22 +1283,33 @@
     });
   }
 
-  function setFieldCheckboxes(fieldKey, checked) {
+  function isDisplayedFilterInput(input) {
+    const option = input?.closest?.(".filter-option");
+    return !option || !option.hidden;
+  }
+
+  function setFieldCheckboxes(fieldKey, checked, options = {}) {
     if (!filterOptionsEl) return;
+    const visibleOnly = options.visibleOnly !== false;
     filterOptionsEl.querySelectorAll(`input[type="checkbox"][data-filter-field="${fieldKey}"]`).forEach((input) => {
-      input.checked = checked;
+      if (!visibleOnly || isDisplayedFilterInput(input)) {
+        input.checked = checked;
+      }
     });
   }
 
-  function setAllFilterCheckboxes(checked) {
+  function setAllFilterCheckboxes(checked, options = {}) {
     if (!filterOptionsEl) return;
+    const visibleOnly = options.visibleOnly !== false;
     filterOptionsEl.querySelectorAll('input[type="checkbox"][data-filter-field]').forEach((input) => {
-      input.checked = checked;
+      if (!visibleOnly || isDisplayedFilterInput(input)) {
+        input.checked = checked;
+      }
     });
   }
 
   function resetFilterModalCheckboxes() {
-    setAllFilterCheckboxes(true);
+    setAllFilterCheckboxes(true, { visibleOnly: false });
   }
 
   function readFilterModalSelections() {
@@ -1299,6 +1504,10 @@
       url.searchParams.set("fm_csv", dataset.csvUrl);
     }
 
+    const latitudeField = normalizeDatasetFieldName(dataset.latitudeField || configuredLatitudeField(dataset, state.headers));
+    if (latitudeField) url.searchParams.set("fm_lat", latitudeField);
+    const longitudeField = normalizeDatasetFieldName(dataset.longitudeField || configuredLongitudeField(dataset, state.headers));
+    if (longitudeField) url.searchParams.set("fm_lng", longitudeField);
     const colorField = normalizeDatasetFieldName(dataset.colorField);
     if (colorField) url.searchParams.set("fm_color", colorField);
     const popupTitleField = normalizeDatasetFieldName(dataset.popupTitleField);
@@ -1895,7 +2104,8 @@
     if (text === "タイプ産地") return "type";
     if (text === "シノニマイズされた種のタイプ産地") return "synonymType";
     if (text === "文献記録") return "literature";
-    if (text === "本調査") return "thisStudy";
+    if (text === "作成者の記録" || text === "本調査") return "thisStudy";
+    if (text === "不確かな記録") return "uncertain";
     return "unknown";
   }
 
@@ -1984,6 +2194,8 @@
       showUserHeading: true
     }), "top-right");
 
+    state.map.addControl(createFocusControl(), "top-right");
+
     if (basemapSelect) {
       const sharedBaseMap = new URLSearchParams(window.location.search).get("fm_base");
       basemapSelect.value = sharedBaseMap === "pale" ? "pale" : (CONFIG.INITIAL_BASEMAP === "pale" ? "pale" : "detail");
@@ -2020,21 +2232,34 @@
     const dataset = getActiveDataset();
     if (!dataset) {
       resetMapDataForDatasetChange();
-      setStatus("調査名を追加してください。");
+      setStatus("調査結果を追加してください。");
       renderDatasetControls();
       return;
     }
 
-    reloadButton.disabled = true;
-    setStatus(`「${dataset.name}」を読み込み中...`);
+    if (state.currentLoadJob) {
+      cancelActiveLoad(false);
+    }
+
+    const job = createLoadJob();
+    state.currentLoadJob = job;
+    setLoadingUi(true);
+    renderDatasetControls();
+    addLoadTimer(job, () => {
+      setStatus("読み込みに時間がかかっています。使用しないポップアップ項目・フィルター項目を減らすと、読み込みが速くなる場合があります。中止することもできます。");
+    }, LOAD_SLOW_NOTICE_MS);
 
     try {
-      const { rows, headers } = await loadSheetRows(dataset);
-      validateHeaders(headers);
+      setStatus(`「${dataset.name}」の列情報を取得しています...`);
+      const { rows, headers, selectedFields } = await loadDisplayRows(dataset, job);
+      throwIfLoadCancelled(job);
+
+      setStatus(`地図用データを作成しています...（読み込み列数: ${selectedFields.length}）`);
+      validateHeaders(headers, dataset);
       state.headers = availableSheetFields(headers);
       state.filterFields = buildFilterFields(state.headers);
 
-      const records = normalizeRows(rows, state.headers);
+      const records = normalizeRows(rows, state.headers, dataset);
       state.rows = records;
       state.filterOptions = buildFilterOptions(records);
       state.filters = loadFiltersForActiveDataset(state.filterOptions);
@@ -2043,7 +2268,11 @@
       assignTaxonColors(state.filteredRows);
       renderLegends(state.filteredRows);
 
+      setStatus("地図の表示範囲を調整しています...");
       await fitBoundsIfNeeded(state.filteredRows);
+      throwIfLoadCancelled(job);
+
+      setStatus("マーカーを描画しています...");
       renderMarkers();
 
       state.lastLoadedAt = new Date();
@@ -2052,74 +2281,246 @@
       updateDataStatus();
       state.hasLoadedOnce = true;
     } catch (error) {
-      console.error(error);
-      setStatus(`読み込み失敗: ${error.message}`);
-      window.alert(`データを読み込めませんでした。
-
-${error.message}`);
+      if (isAbortError(error)) {
+        setStatus("読み込みを中止しました。");
+      } else {
+        console.error(error);
+        setStatus(`読み込み失敗: ${error.message}`);
+        window.alert(`データを読み込めませんでした。\n\n${error.message}`);
+      }
     } finally {
-      reloadButton.disabled = false;
+      if (state.currentLoadJob === job) {
+        clearLoadJob(job);
+        state.currentLoadJob = null;
+      }
+      setLoadingUi(false);
       renderDatasetControls();
     }
   }
 
-  function fitBoundsIfNeeded(records) {
-    if (!CONFIG.AUTO_FIT_BOUNDS || records.length === 0 || !state.map) {
-      return Promise.resolve();
-    }
-
-    const bounds = new maplibregl.LngLatBounds();
-    records.forEach((record) => {
-      bounds.extend([record.longitude, record.latitude]);
-    });
+  function fitToRecords(records, { respectAutoFit = false, duration = 300 } = {}) {
+    const targetRecords = Array.isArray(records)
+      ? records.filter((record) => Number.isFinite(record?.latitude) && Number.isFinite(record?.longitude))
+      : [];
+    if (!state.map || targetRecords.length === 0) return Promise.resolve(false);
+    if (respectAutoFit && !CONFIG.AUTO_FIT_BOUNDS) return Promise.resolve(false);
 
     return new Promise((resolve) => {
-      const finish = () => resolve();
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        resolve(true);
+      };
       state.map.once("moveend", finish);
-      state.map.fitBounds(bounds, {
-        padding: { top: 90, right: 45, bottom: 90, left: 45 },
-        maxZoom: 12,
-        duration: state.hasLoadedOnce ? 250 : 600
-      });
-      window.setTimeout(finish, 900);
+
+      if (targetRecords.length === 1) {
+        const record = targetRecords[0];
+        const defaultZoom = Number(CONFIG.FOCUS_SINGLE_MARKER_ZOOM) || 14;
+        const maxZoom = Number(CONFIG.FOCUS_SINGLE_MARKER_MAX_ZOOM) || 16;
+        state.map.easeTo({
+          center: [record.longitude, record.latitude],
+          zoom: Math.min(Math.max(state.map.getZoom(), defaultZoom), maxZoom),
+          duration
+        });
+      } else {
+        const bounds = new maplibregl.LngLatBounds();
+        targetRecords.forEach((record) => {
+          bounds.extend([record.longitude, record.latitude]);
+        });
+        state.map.fitBounds(bounds, {
+          padding: { top: 90, right: 45, bottom: 90, left: 45 },
+          maxZoom: 12,
+          duration
+        });
+      }
+      window.setTimeout(finish, Math.max(900, duration + 300));
     });
   }
 
-  async function loadSheetRows(dataset) {
-    if (dataset.csvUrl && dataset.csvUrl.trim()) {
-      return loadCsvRows(dataset.csvUrl.trim());
-    }
-    return loadGvizRows(dataset.spreadsheetId, dataset.sheetName);
+  function fitBoundsIfNeeded(records) {
+    return fitToRecords(records, {
+      respectAutoFit: true,
+      duration: state.hasLoadedOnce ? 250 : 600
+    });
   }
 
-  async function loadCsvRows(url) {
+  async function focusVisibleRecords() {
+    if (state.isLoading) return;
+    if (!state.filteredRows.length) {
+      setStatus("表示中の記録がありません。");
+      return;
+    }
+    closePopup();
+    setStatus("表示中の記録範囲へ移動しています...");
+    await fitToRecords(state.filteredRows, { respectAutoFit: false, duration: 350 });
+    updateDataStatus();
+  }
+
+  function updateFocusControlState() {
+    if (!state.focusButton) return;
+    state.focusButton.disabled = state.isLoading || state.filteredRows.length === 0;
+    state.focusButton.setAttribute("aria-disabled", state.focusButton.disabled ? "true" : "false");
+  }
+
+  function createFocusControl() {
+    let container = null;
+    return {
+      onAdd() {
+        container = document.createElement("div");
+        container.className = "maplibregl-ctrl maplibregl-ctrl-group field-map-focus-control";
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "field-map-focus-button";
+        button.title = "表示中の記録範囲へ移動";
+        button.setAttribute("aria-label", "表示中の記録範囲へ移動");
+        button.textContent = "◎";
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          focusVisibleRecords();
+        });
+
+        container.appendChild(button);
+        state.focusButton = button;
+        updateFocusControlState();
+        return container;
+      },
+      onRemove() {
+        if (container?.parentNode) container.parentNode.removeChild(container);
+        state.focusButton = null;
+        container = null;
+      }
+    };
+  }
+
+  async function loadDisplayRows(dataset, job) {
+    if (dataset.csvUrl && dataset.csvUrl.trim()) {
+      setStatus(`「${dataset.name}」のCSVを読み込んでいます...`);
+      const full = await loadCsvRows(dataset.csvUrl.trim(), { job });
+      throwIfLoadCancelled(job);
+      validateHeaders(full.headers, dataset);
+      const selectedFields = buildDataFieldsForDataset(dataset, full.headers);
+      setStatus(`使用する ${selectedFields.length} 列だけを地図表示用に抽出しています...`);
+      return {
+        headers: selectedFields,
+        rows: selectRowsByFields(full.rows, selectedFields),
+        selectedFields
+      };
+    }
+
+    const headerResult = await loadGvizHeaders(dataset.spreadsheetId, dataset.sheetName, { job });
+    throwIfLoadCancelled(job);
+    validateHeaders(headerResult.headers, dataset);
+    const selectedFields = buildDataFieldsForDataset(dataset, headerResult.headers);
+    setStatus(`「${dataset.name}」の使用する ${selectedFields.length} 列を読み込んでいます...`);
+    const rowsResult = await loadGvizRows(dataset.spreadsheetId, dataset.sheetName, {
+      job,
+      fields: selectedFields,
+      sourceHeaders: headerResult.headers
+    });
+    return {
+      headers: rowsResult.headers,
+      rows: rowsResult.rows,
+      selectedFields
+    };
+  }
+
+  async function loadSheetHeaders(dataset) {
+    if (dataset.csvUrl && dataset.csvUrl.trim()) {
+      const { headers } = await loadCsvRows(dataset.csvUrl.trim(), {});
+      return { headers };
+    }
+    return loadGvizHeaders(dataset.spreadsheetId, dataset.sheetName, {});
+  }
+
+  async function loadSheetRows(dataset, options = {}) {
+    if (dataset.csvUrl && dataset.csvUrl.trim()) {
+      return loadCsvRows(dataset.csvUrl.trim(), options);
+    }
+    return loadGvizRows(dataset.spreadsheetId, dataset.sheetName, options);
+  }
+
+  async function loadCsvRows(url, { fields = null, job = null } = {}) {
     const separator = url.includes("?") ? "&" : "?";
-    const response = await fetch(`${url}${separator}_=${Date.now()}`, { cache: "no-store" });
+    const fetchOptions = { cache: "no-store" };
+    let didTimeout = false;
+    let timeoutId = null;
+    if (job?.abortController) {
+      fetchOptions.signal = job.abortController.signal;
+      timeoutId = window.setTimeout(() => {
+        didTimeout = true;
+        job.abortController.abort();
+      }, LOAD_TIMEOUT_MS);
+    }
+
+    let response;
+    try {
+      response = await fetch(`${url}${separator}_=${Date.now()}`, fetchOptions);
+    } catch (error) {
+      if (timeoutId) window.clearTimeout(timeoutId);
+      if (job?.aborted) throw makeAbortError();
+      if (didTimeout) {
+        throw new Error("CSVの読み込みがタイムアウトしました。使用しないポップアップ項目・フィルター項目を減らすか、データを分割すると改善する場合があります。");
+      }
+      throw error;
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    }
+
+    throwIfLoadCancelled(job);
     if (!response.ok) {
       throw new Error(`CSVの取得に失敗しました: HTTP ${response.status}`);
     }
     const text = await response.text();
+    throwIfLoadCancelled(job);
     const table = parseCsv(text);
     if (table.length === 0) {
       throw new Error("CSVに行がありません。");
     }
 
-    const headers = table[0].map(normalizeText);
+    const allHeaders = table[0].map(normalizeText);
+    const selectedHeaders = fields ? normalizeFieldsForHeaders(fields, allHeaders) : availableSheetFields(allHeaders);
+    const selectedSet = new Set(selectedHeaders);
     const rows = table.slice(1).map((cells) => {
       const row = {};
-      headers.forEach((header, index) => {
-        row[header] = cells[index] ?? "";
+      allHeaders.forEach((header, index) => {
+        if (!fields || selectedSet.has(header)) {
+          row[header] = cells[index] ?? "";
+        }
       });
       return row;
     });
 
-    return { headers, rows };
+    return { headers: selectedHeaders, rows };
   }
 
-  function loadGvizRows(sheetId, sheetName) {
+  function loadGvizHeaders(sheetId, sheetName, options = {}) {
+    return loadGvizTable(sheetId, sheetName, {
+      ...options,
+      tq: "select * limit 0",
+      timeoutMessage: "Googleスプレッドシートの列情報取得がタイムアウトしました。共有設定またはシート名を確認してください。"
+    });
+  }
+
+  function loadGvizRows(sheetId, sheetName, { fields = null, sourceHeaders = null, job = null } = {}) {
+    const tq = fields && sourceHeaders ? buildGvizSelectQuery(sourceHeaders, fields) : "select *";
+    return loadGvizTable(sheetId, sheetName, {
+      job,
+      tq,
+      timeoutMessage: "Googleスプレッドシートのデータ読み込みがタイムアウトしました。使用しないポップアップ項目・フィルター項目を減らすか、シートを分割すると改善する場合があります。"
+    });
+  }
+
+  function loadGvizTable(sheetId, sheetName, { tq = "select *", timeoutMessage = "Googleスプレッドシートの読み込みがタイムアウトしました。", job = null } = {}) {
     return new Promise((resolve, reject) => {
       if (!sheetId) {
         reject(new Error("SHEET_ID が設定されていません。"));
+        return;
+      }
+      if (job?.aborted) {
+        reject(makeAbortError());
         return;
       }
 
@@ -2129,19 +2530,31 @@ ${error.message}`);
         sheet: sheetName || "",
         headers: "1",
         tqx: `out:json;responseHandler:${callbackName}`,
+        tq,
         _: String(Date.now())
       });
 
+      let settled = false;
       const timeoutId = window.setTimeout(() => {
         cleanup();
-        reject(new Error("Googleスプレッドシートの読み込みがタイムアウトしました。共有設定またはシート名を確認してください。"));
-      }, 15000);
+        reject(new Error(timeoutMessage));
+      }, LOAD_TIMEOUT_MS);
 
       function cleanup() {
+        if (settled) return;
+        settled = true;
         window.clearTimeout(timeoutId);
         delete window[callbackName];
-        script.remove();
+        if (script.parentNode) script.remove();
+        if (job) job.cleanupHandlers.delete(cancelHandler);
       }
+
+      function cancelHandler() {
+        cleanup();
+        reject(makeAbortError());
+      }
+
+      if (job) job.cleanupHandlers.add(cancelHandler);
 
       window[callbackName] = (response) => {
         try {
@@ -2165,6 +2578,68 @@ ${error.message}`);
       script.src = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq?${query.toString()}`;
       document.head.appendChild(script);
     });
+  }
+
+  function columnIdForIndex(index) {
+    let number = index + 1;
+    let id = "";
+    while (number > 0) {
+      const rem = (number - 1) % 26;
+      id = String.fromCharCode(65 + rem) + id;
+      number = Math.floor((number - 1) / 26);
+    }
+    return id;
+  }
+
+  function buildGvizSelectQuery(sourceHeaders, fields) {
+    const headers = (sourceHeaders || []).map(normalizeText);
+    const selected = normalizeFieldsForHeaders(fields, headers);
+    const columns = selected
+      .map((field) => headers.indexOf(field))
+      .filter((index) => index >= 0)
+      .map(columnIdForIndex);
+    if (!columns.length) return "select *";
+    return `select ${columns.join(",")}`;
+  }
+
+  function selectRowsByFields(rows, fields) {
+    const selected = uniqueFieldList(fields);
+    return rows.map((row) => {
+      const obj = {};
+      selected.forEach((field) => {
+        obj[field] = row[field] ?? "";
+        const rawKey = `__raw_${field}`;
+        if (Object.prototype.hasOwnProperty.call(row, rawKey)) obj[rawKey] = row[rawKey];
+      });
+      return obj;
+    });
+  }
+
+  function addResolvedField(result, headers, field) {
+    if (!field || field === VIRTUAL_COORDINATES_FIELD) return;
+    const resolved = normalizeFieldsForHeaders([field], headers)[0];
+    if (resolved && !result.includes(resolved)) result.push(resolved);
+  }
+
+  function buildDataFieldsForDataset(dataset, headers) {
+    const result = [];
+    addResolvedField(result, headers, configuredLatitudeField(dataset, headers));
+    addResolvedField(result, headers, configuredLongitudeField(dataset, headers));
+    addResolvedField(result, headers, COLUMNS.recordType);
+
+    addResolvedField(result, headers, configuredColorField(dataset, headers));
+    addResolvedField(result, headers, configuredPopupTitleField(dataset, headers));
+
+    configuredPopupFields(dataset, headers).forEach((field) => addResolvedField(result, headers, field));
+    configuredFilterFields(dataset, headers).forEach((field) => addResolvedField(result, headers, field));
+
+    if (result.includes(COLUMNS.date) || result.includes(LEGACY_DATE_HEADER)) {
+      addResolvedField(result, headers, COLUMNS.year);
+      addResolvedField(result, headers, COLUMNS.month);
+      addResolvedField(result, headers, COLUMNS.day);
+    }
+
+    return result;
   }
 
   function gvizResponseToRows(response) {
@@ -2241,37 +2716,27 @@ ${error.message}`);
     return rows;
   }
 
-  function validateHeaders(headers) {
+  function validateHeaders(headers, dataset = getActiveDataset()) {
     const headerSet = new Set(headers.map(normalizeText));
     const hasTaxonHeader = headerSet.has(COLUMNS.taxon) || headerSet.has(LEGACY_TAXON_HEADER);
-    const hasLatitudeHeader = headerSet.has(COLUMNS.latitude) || headerSet.has(LEGACY_LATITUDE_HEADER);
-    const hasLongitudeHeader = headerSet.has(COLUMNS.longitude) || headerSet.has(LEGACY_LONGITUDE_HEADER);
     if (!hasTaxonHeader && headerSet.has(REJECTED_TAXON_HEADER)) {
       throw new Error("ヘッダーが旧形式です。「Taxon」ではなく「分類群」に変更してから、再読み込みしてください。");
     }
 
-    const missing = REQUIRED_HEADERS.filter((header) => {
-      if (header === COLUMNS.taxon) return !hasTaxonHeader;
-      if (header === COLUMNS.latitude) return !hasLatitudeHeader;
-      if (header === COLUMNS.longitude) return !hasLongitudeHeader;
-      return !headerSet.has(header);
-    });
-    if (missing.length > 0) {
-      throw new Error(`必須ヘッダーが見つかりません: ${missing.join(", ")}`);
+    const latitudeField = configuredLatitudeField(dataset, headers);
+    const longitudeField = configuredLongitudeField(dataset, headers);
+    if (!latitudeField || !longitudeField) {
+      throw new Error("位置情報に使用する列を特定できません。データの編集画面で「緯度として使う列」と「経度として使う列」を選択してください。");
     }
   }
 
-  function normalizeRows(rows, headers) {
+  function normalizeRows(rows, headers, dataset = getActiveDataset()) {
     const filterHeaders = (headers || []).map(normalizeText).filter(Boolean);
+    const latitudeField = configuredLatitudeField(dataset, headers);
+    const longitudeField = configuredLongitudeField(dataset, headers);
     return rows.map((row, index) => {
-      const latitude = parseNumber(
-        row[`__raw_${COLUMNS.latitude}`] ?? row[COLUMNS.latitude] ??
-        row[`__raw_${LEGACY_LATITUDE_HEADER}`] ?? row[LEGACY_LATITUDE_HEADER]
-      );
-      const longitude = parseNumber(
-        row[`__raw_${COLUMNS.longitude}`] ?? row[COLUMNS.longitude] ??
-        row[`__raw_${LEGACY_LONGITUDE_HEADER}`] ?? row[LEGACY_LONGITUDE_HEADER]
-      );
+      const latitude = parseNumber(row[`__raw_${latitudeField}`] ?? row[latitudeField]);
+      const longitude = parseNumber(row[`__raw_${longitudeField}`] ?? row[longitudeField]);
       const values = {};
       filterHeaders.forEach((header) => {
         values[header] = normalizeText(row[header]);
@@ -2284,6 +2749,9 @@ ${error.message}`);
       }
       if (!values[COLUMNS.longitude] && values[LEGACY_LONGITUDE_HEADER]) {
         values[COLUMNS.longitude] = values[LEGACY_LONGITUDE_HEADER];
+      }
+      if (!values[COLUMNS.date] && values[LEGACY_DATE_HEADER]) {
+        values[COLUMNS.date] = values[LEGACY_DATE_HEADER];
       }
 
       return {
@@ -2433,7 +2901,8 @@ ${error.message}`);
   function markerShapePriority(kind) {
     if (kind === "type") return 3;
     if (kind === "synonymType") return 2;
-    return 1;
+    if (kind === "thisStudy" || kind === "literature") return 1;
+    return 0;
   }
 
   function getMarkerSegmentPriority(segment) {
@@ -2635,6 +3104,28 @@ ${error.message}`);
         </svg>`;
     }
 
+    if (kind === "uncertain") {
+      return `
+        <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+          <line x1="5.2" y1="5.2" x2="18.8" y2="18.8"
+            stroke="${stroke}" stroke-width="6.0" stroke-linecap="round" />
+          <line x1="18.8" y1="5.2" x2="5.2" y2="18.8"
+            stroke="${stroke}" stroke-width="6.0" stroke-linecap="round" />
+          <line x1="5.2" y1="5.2" x2="18.8" y2="18.8"
+            stroke="${color}" stroke-width="4.1" stroke-linecap="round" />
+          <line x1="18.8" y1="5.2" x2="5.2" y2="18.8"
+            stroke="${color}" stroke-width="4.1" stroke-linecap="round" />
+        </svg>`;
+    }
+
+    if (kind === "unknown") {
+      return `
+        <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+          <polygon points="12,3.8 21,19.2 3,19.2"
+            fill="${color}" stroke="${stroke}" stroke-width="1.7" stroke-linejoin="round" />
+        </svg>`;
+    }
+
     return `
       <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
         <circle cx="12" cy="12" r="8.2"
@@ -2690,6 +3181,32 @@ ${error.message}`);
           ${radialHollowSlices(segmentList.map((segment) => ({ ...segment, kind: "literature" })), innerClipId, innerWhite)}
           <circle cx="12" cy="12" r="4.5" fill="none" stroke="${stroke}" stroke-width="0.45" />
           <circle cx="12" cy="12" r="8.2" fill="none" stroke="${stroke}" stroke-width="1.9" />
+        </svg>`;
+    }
+
+    if (kind === "uncertain") {
+      return `
+        <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+          <defs>
+            <clipPath id="${clipId}">
+              <g transform="rotate(45 12 12)"><rect x="9.9" y="3.0" width="4.2" height="18" rx="1.6" /></g>
+              <g transform="rotate(-45 12 12)"><rect x="9.9" y="3.0" width="4.2" height="18" rx="1.6" /></g>
+            </clipPath>
+          </defs>
+          <line x1="5.2" y1="5.2" x2="18.8" y2="18.8" stroke="${stroke}" stroke-width="6.0" stroke-linecap="round" />
+          <line x1="18.8" y1="5.2" x2="5.2" y2="18.8" stroke="${stroke}" stroke-width="6.0" stroke-linecap="round" />
+          ${slices}
+        </svg>`;
+    }
+
+    if (kind === "unknown") {
+      return `
+        <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+          <defs>
+            <clipPath id="${clipId}"><polygon points="12,3.8 21,19.2 3,19.2" /></clipPath>
+          </defs>
+          ${slices}
+          <polygon points="12,3.8 21,19.2 3,19.2" fill="none" stroke="${stroke}" stroke-width="1.9" stroke-linejoin="round" />
         </svg>`;
     }
 
@@ -3059,7 +3576,8 @@ ${error.message}`);
     if (kind === "synonymType") return "square";
     if (kind === "literature") return "hollow";
     if (kind === "thisStudy") return "filled";
-    return "filled unknown";
+    if (kind === "uncertain") return "x";
+    return "triangle unknown";
   }
 
   function renderTaxonLegend(records) {
@@ -3095,62 +3613,11 @@ ${error.message}`);
     }).join("");
   }
 
-  function mapPixelFromClientEvent(event) {
-    if (!state.map || !event) return null;
-    const container = state.map.getContainer();
-    if (!container) return null;
-    const rect = container.getBoundingClientRect();
-    return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
-    };
-  }
-
-  function markerGroupAtClientPoint(event) {
-    if (!state.map || !Array.isArray(state.markerGroups) || !state.markerGroups.length) return null;
-    const clickPixel = mapPixelFromClientEvent(event);
-    if (!clickPixel) return null;
-
-    const candidates = state.markerGroups
-      .map((group) => {
-        finalizeMarkerGroup(group);
-        const markerPixel = state.map.project(markerGroupLngLat(group));
-        const dx = markerPixel.x - clickPixel.x;
-        const dy = markerPixel.y - clickPixel.y;
-        return { group, distance: Math.sqrt(dx * dx + dy * dy) };
-      })
-      .filter((entry) => entry.distance <= POPUP_CLICK_THROUGH_MARKER_PIXELS);
-
-    candidates.sort((a, b) => {
-      const priorityDiff = getMarkerGroupPriority(b.group) - getMarkerGroupPriority(a.group);
-      if (priorityDiff !== 0) return priorityDiff;
-      return a.distance - b.distance;
-    });
-
-    return candidates[0]?.group || null;
-  }
-
-
   function setupPopupClose() {
-    document.addEventListener("click", (event) => {
-      if (!state.activePopup) return;
-      const target = event.target instanceof Element ? event.target : event.target?.parentElement;
-      if (!target) return;
-      const insidePopup = target.closest(".maplibregl-popup");
-      const insideMarker = target.closest(".record-marker");
-      const insideMapControl = target.closest(".maplibregl-ctrl");
-      if (!insidePopup && !insideMarker && !insideMapControl) {
-        const nextGroup = markerGroupAtClientPoint(event);
-        closePopup();
-        if (nextGroup) {
-          event.preventDefault();
-          event.stopPropagation();
-          openPopupForMarkerGroup(nextGroup);
-        }
-      }
-    }, true);
+    // ポップアップがマーカーより前面にある場合でも、
+    // ポップアップに遮られて直接クリックできなかったマーカーは推定して開かない。
+    // マーカー要素を直接クリックできた場合のみ、マーカー側の click ハンドラで開く。
   }
-
 
   if (topbarToggleButton) {
     topbarToggleButton.addEventListener("click", () => setTopbarCollapsed(true));
@@ -3233,6 +3700,7 @@ ${error.message}`);
       if (event.target === filterModal) closeFilterModal();
     });
   }
+  if (reloadCancelButton) reloadCancelButton.addEventListener("click", () => cancelActiveLoad(true));
   if (helpButton) helpButton.addEventListener("click", openHelpModal);
   if (helpModalCloseButton) helpModalCloseButton.addEventListener("click", closeHelpModal);
   if (helpModalCancelButton) helpModalCancelButton.addEventListener("click", closeHelpModal);

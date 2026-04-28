@@ -122,7 +122,8 @@ body,
   position: fixed;
   left: 10px;
   bottom: calc(10px + env(safe-area-inset-bottom));
-  z-index: 5;
+  /* マーカーは z-index 100 以上で前面順を制御するため、凡例はそれより手前、モーダルはさらに手前に出す。 */
+  z-index: 500;
   max-width: min(360px, calc(100vw - 20px));
   max-height: 45vh;
   overflow: auto;
@@ -193,6 +194,39 @@ body,
   background: #777;
 }
 
+.legend-symbol.x {
+  position: relative;
+  width: 15px;
+  height: 15px;
+}
+
+.legend-symbol.x::before,
+.legend-symbol.x::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 1px;
+  width: 3px;
+  height: 13px;
+  border-radius: 999px;
+  background: #777;
+}
+
+.legend-symbol.x::before {
+  transform: rotate(45deg);
+}
+
+.legend-symbol.x::after {
+  transform: rotate(-45deg);
+}
+
+.legend-symbol.triangle {
+  width: 15px;
+  height: 14px;
+  background: #777;
+  clip-path: polygon(50% 5%, 95% 95%, 5% 95%);
+}
+
 .legend-symbol.unknown {
   background: #999;
   opacity: 0.65;
@@ -219,6 +253,30 @@ body,
   transform: translate(-50%, -50%);
   cursor: pointer;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  -webkit-clip-path: circle(40% at 50% 50%);
+  clip-path: circle(40% at 50% 50%);
+}
+
+.record-marker.kind-type {
+  width: 32px;
+  height: 32px;
+  -webkit-clip-path: polygon(50% 6.7%, 61.7% 35%, 92.1% 37.1%, 68.8% 56.7%, 75.8% 86.7%, 50% 70.8%, 24.2% 86.7%, 31.3% 56.7%, 7.9% 37.1%, 38.3% 35%);
+  clip-path: polygon(50% 6.7%, 61.7% 35%, 92.1% 37.1%, 68.8% 56.7%, 75.8% 86.7%, 50% 70.8%, 24.2% 86.7%, 31.3% 56.7%, 7.9% 37.1%, 38.3% 35%);
+}
+
+.record-marker.kind-synonymType {
+  -webkit-clip-path: inset(17% 17% 17% 17% round 2px);
+  clip-path: inset(17% 17% 17% 17% round 2px);
+}
+
+.record-marker.kind-uncertain {
+  -webkit-clip-path: polygon(18% 6%, 50% 38%, 82% 6%, 94% 18%, 62% 50%, 94% 82%, 82% 94%, 50% 62%, 18% 94%, 6% 82%, 38% 50%, 6% 18%);
+  clip-path: polygon(18% 6%, 50% 38%, 82% 6%, 94% 18%, 62% 50%, 94% 82%, 82% 94%, 50% 62%, 18% 94%, 6% 82%, 38% 50%, 6% 18%);
+}
+
+.record-marker.kind-unknown {
+  -webkit-clip-path: polygon(50% 15%, 87% 82%, 13% 82%);
+  clip-path: polygon(50% 15%, 87% 82%, 13% 82%);
 }
 
 .maplibregl-marker.record-marker {
@@ -231,8 +289,8 @@ body,
 
 
 .record-marker svg {
-  width: 26px;
-  height: 26px;
+  width: 100%;
+  height: 100%;
   display: block;
 }
 
@@ -242,6 +300,28 @@ body,
   border-radius: 4px;
 }
 
+
+
+.field-map-focus-control button {
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.field-map-focus-control button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.field-map-focus-control button:active:not(:disabled) {
+  transform: translateY(1px);
+}
 
 .maplibregl-popup {
   z-index: 10000 !important;
@@ -559,7 +639,8 @@ body.modal-open {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  /* メニューから開く入力画面・選択画面は、凡例とポップアップより前面に出す。 */
+  z-index: 20000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1604,6 +1685,59 @@ body.modal-open {
   padding: 1px 4px;
   border-radius: 4px;
   background: #f1f5f9;
+}
+
+.help-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #d8e1ec;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.help-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.help-table th,
+.help-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e6edf5;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.55;
+}
+
+.help-table th {
+  background: #f7faff;
+  color: #222;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.help-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.header-copy-line {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  overflow-x: auto;
+  border: 1px solid #d8e1ec;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #111;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.header-copy-line code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 @media (min-width: 981px) {
