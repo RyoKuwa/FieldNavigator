@@ -11,6 +11,12 @@
     COLUMNS.longitude
   ];
 
+  const FILTER_FIELD_LABEL_OVERRIDES = {
+    [COLUMNS.taxon]: "分類群"
+  };
+
+  const EMPTY_FILTER_VALUE = "__FIELD_MAP_EMPTY__";
+
   const RECORD_TYPE_PRIORITY = {
     type: 50,
     synonymType: 40,
@@ -18,6 +24,14 @@
     literature: 20,
     unknown: 0
   };
+
+  const RECORD_TYPE_LEGEND_ITEMS = [
+    { kind: "type", label: "タイプ産地" },
+    { kind: "synonymType", label: "シノニマイズされた種のタイプ産地" },
+    { kind: "literature", label: "文献記録" },
+    { kind: "thisStudy", label: "本調査" },
+    { kind: "unknown", label: "その他" }
+  ];
 
   const DETAILED_MAP_ATTRIBUTION = "Imagery © <a href=\"https://www.esri.com/en-us/home\" target=\"_blank\" rel=\"noopener\">Esri</a>";
   const GSI_TILE_ATTRIBUTION = "<a href='https://maps.gsi.go.jp/development/ichiran.html' target='_blank' rel='noopener'>地理院タイル</a>";
@@ -47,6 +61,10 @@
     map: null,
     markers: [],
     rows: [],
+    filteredRows: [],
+    filterOptions: new Map(),
+    filters: new Map(),
+    filterFields: [],
     markerGroups: [],
     activePopup: null,
     currentPopupIndex: 0,
@@ -60,7 +78,9 @@
     datasets: [],
     temporaryDataset: null,
     activeDatasetId: null,
-    sharedDatasetIdFromUrl: null
+    sharedDatasetIdFromUrl: null,
+    lastLoadedAt: null,
+    skippedRows: 0
   };
 
   const appEl = document.getElementById("app");
@@ -70,7 +90,18 @@
   const topbarOpenButton = document.getElementById("topbar-open-button");
   const reloadButton = document.getElementById("reload-button");
   const taxonLegendEl = document.getElementById("taxon-legend");
+  const recordTypeLegendEl = document.getElementById("record-type-legend");
   const basemapSelect = document.getElementById("basemap-select");
+  const filterButton = document.getElementById("filter-button");
+  const filterSummary = document.getElementById("filter-summary");
+  const filterModal = document.getElementById("filter-modal");
+  const filterModalCloseButton = document.getElementById("filter-modal-close");
+  const filterModalCancelButton = document.getElementById("filter-modal-cancel");
+  const filterApplyButton = document.getElementById("filter-apply-button");
+  const filterSelectAllButton = document.getElementById("filter-select-all-button");
+  const filterSelectNoneButton = document.getElementById("filter-select-none-button");
+  const filterResetButton = document.getElementById("filter-reset-button");
+  const filterOptionsEl = document.getElementById("filter-options");
   const datasetSelect = document.getElementById("dataset-select");
   const datasetAddButton = document.getElementById("dataset-add-button");
   const datasetEditButton = document.getElementById("dataset-edit-button");
@@ -106,6 +137,7 @@
   const DATASETS_STORAGE_KEY = CONFIG.LOCAL_DATASETS_STORAGE_KEY || "fieldMap.localDatasets.v1";
   const ACTIVE_DATASET_STORAGE_KEY = CONFIG.ACTIVE_DATASET_STORAGE_KEY || "fieldMap.activeDatasetId.v1";
   const TOPBAR_COLLAPSED_STORAGE_KEY = CONFIG.TOPBAR_COLLAPSED_STORAGE_KEY || "fieldMap.topbarCollapsed.v1";
+  const FILTERS_STORAGE_KEY_PREFIX = CONFIG.FILTERS_STORAGE_KEY_PREFIX || "fieldMap.filters.v1";
   titleEl.textContent = CONFIG.TITLE || "調査用地図";
 
   function setStatus(message) {
@@ -377,6 +409,7 @@
         datasetRegisterButton.disabled = true;
         datasetRegisterButton.classList.add("is-inactive");
       }
+      updateFilterSummary();
       return;
     }
 
@@ -398,6 +431,9 @@
     if (datasetEditButton) datasetEditButton.disabled = !registered;
     if (datasetDeleteButton) datasetDeleteButton.disabled = !registered;
     if (datasetShareButton) datasetShareButton.disabled = !hasActive;
+    if (filterButton) filterButton.disabled = state.rows.length === 0;
+    updateFilterSummary();
+
     if (datasetRegisterButton) {
       datasetRegisterButton.classList.remove("is-registered", "is-registerable", "is-inactive");
       if (!hasActive) {
@@ -420,9 +456,322 @@
     closePopup();
     clearMarkers();
     state.rows = [];
+    state.filteredRows = [];
+    state.filterOptions = new Map();
+    state.filters = new Map();
+    state.filterFields = [];
     state.markerGroups = [];
     state.taxonColors = new Map();
+    state.lastLoadedAt = null;
+    state.skippedRows = 0;
     if (taxonLegendEl) taxonLegendEl.innerHTML = "";
+    if (recordTypeLegendEl) recordTypeLegendEl.innerHTML = "";
+    updateFilterSummary();
+  }
+
+  function filterValue(value) {
+    const text = normalizeText(value);
+    return text || EMPTY_FILTER_VALUE;
+  }
+
+  function filterValueLabel(value) {
+    return value === EMPTY_FILTER_VALUE ? "（空欄）" : value;
+  }
+
+  function getRecordFilterValue(record, fieldKey) {
+    return filterValue(record?.__filterValues?.[fieldKey]);
+  }
+
+  function currentDatasetFilterStorageKey() {
+    const dataset = getActiveDataset();
+    if (!dataset) return "";
+    const identity = datasetIdentityKey(dataset) || dataset.id || dataset.name;
+    return `${FILTERS_STORAGE_KEY_PREFIX}:${hashString(identity).toString(36)}`;
+  }
+
+  function buildFilterFields(headers) {
+    return headers
+      .map(normalizeText)
+      .filter((header) => header && !header.startsWith("__raw_"))
+      .map((header) => ({
+        key: header,
+        label: FILTER_FIELD_LABEL_OVERRIDES[header] || header
+      }));
+  }
+
+  function buildFilterOptions(records) {
+    const options = new Map();
+    state.filterFields.forEach((field) => {
+      const counts = new Map();
+      records.forEach((record) => {
+        const value = getRecordFilterValue(record, field.key);
+        counts.set(value, (counts.get(value) || 0) + 1);
+      });
+      const values = [...counts.entries()]
+        .map(([value, count]) => ({ value, count, label: filterValueLabel(value) }))
+        .sort((a, b) => {
+          if (a.value === EMPTY_FILTER_VALUE) return 1;
+          if (b.value === EMPTY_FILTER_VALUE) return -1;
+          return a.label.localeCompare(b.label, "ja");
+        });
+      options.set(field.key, values);
+    });
+    return options;
+  }
+
+  function defaultFiltersFromOptions(options) {
+    const filters = new Map();
+    state.filterFields.forEach((field) => {
+      filters.set(field.key, new Set((options.get(field.key) || []).map((entry) => entry.value)));
+    });
+    return filters;
+  }
+
+  function loadFiltersForActiveDataset(options) {
+    const key = currentDatasetFilterStorageKey();
+    if (!key) return defaultFiltersFromOptions(options);
+
+    let stored = null;
+    try {
+      stored = JSON.parse(window.localStorage.getItem(key) || "null");
+    } catch (error) {
+      console.warn("フィルター設定を読み取れませんでした。", error);
+    }
+
+    const filters = new Map();
+    state.filterFields.forEach((field) => {
+      const available = new Set((options.get(field.key) || []).map((entry) => entry.value));
+      const savedValues = Array.isArray(stored?.[field.key]) ? stored[field.key].map(filterValue) : null;
+      if (!savedValues) {
+        filters.set(field.key, new Set(available));
+        return;
+      }
+      filters.set(field.key, new Set(savedValues.filter((value) => available.has(value))));
+    });
+    return filters;
+  }
+
+  function saveFiltersForActiveDataset() {
+    const key = currentDatasetFilterStorageKey();
+    if (!key) return;
+    const payload = {};
+    state.filterFields.forEach((field) => {
+      payload[field.key] = [...(state.filters.get(field.key) || new Set())];
+    });
+    window.localStorage.setItem(key, JSON.stringify(payload));
+  }
+
+  function applyFiltersToRows(records) {
+    if (!records.length) return [];
+    return records.filter((record) => state.filterFields.every((field) => {
+      const selected = state.filters.get(field.key);
+      if (!selected || selected.size === 0) return false;
+      return selected.has(getRecordFilterValue(record, field.key));
+    }));
+  }
+
+  function hasActiveFilter() {
+    return state.filterFields.some((field) => {
+      const options = state.filterOptions.get(field.key) || [];
+      const selected = state.filters.get(field.key) || new Set();
+      return options.length > 0 && selected.size < options.length;
+    });
+  }
+
+  function updateFilterSummary() {
+    const visible = state.filteredRows.length;
+    const total = state.rows.length;
+    if (filterSummary) {
+      filterSummary.textContent = `表示中: ${visible} / ${total}件${hasActiveFilter() ? "（フィルター中）" : ""}`;
+    }
+    if (filterButton) {
+      filterButton.disabled = total === 0;
+      filterButton.classList.toggle("is-filtered", hasActiveFilter());
+    }
+  }
+
+  function refreshFilteredRows({ save = false, rerender = true, fit = false } = {}) {
+    state.filteredRows = applyFiltersToRows(state.rows);
+    assignTaxonColors(state.filteredRows);
+    if (save) saveFiltersForActiveDataset();
+    updateFilterSummary();
+
+    if (rerender) {
+      closePopup();
+      renderLegends(state.filteredRows);
+      if (fit) {
+        fitBoundsIfNeeded(state.filteredRows).then(() => renderMarkers());
+      } else {
+        renderMarkers();
+      }
+      updateDataStatus();
+    }
+  }
+
+  function buildFilterOptionCheckbox(field, entry, selected) {
+    const label = document.createElement("label");
+    label.className = "filter-option";
+    label.dataset.filterLabel = `${entry.label} ${entry.value}`.toLocaleLowerCase("ja-JP");
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.filterField = field.key;
+    checkbox.dataset.filterValue = entry.value;
+    checkbox.checked = selected.has(entry.value);
+
+    const text = document.createElement("span");
+    text.className = "filter-option-label";
+    text.textContent = entry.label;
+
+    const count = document.createElement("span");
+    count.className = "filter-option-count";
+    count.textContent = String(entry.count);
+
+    label.append(checkbox, text, count);
+    return label;
+  }
+
+  function filterVisibleOptions(fieldset, query) {
+    const normalizedQuery = normalizeText(query).toLocaleLowerCase("ja-JP");
+    const options = Array.from(fieldset.querySelectorAll(".filter-option"));
+    let visibleCount = 0;
+
+    options.forEach((option) => {
+      const targetText = option.dataset.filterLabel || "";
+      const shouldShow = !normalizedQuery || targetText.includes(normalizedQuery);
+      option.hidden = !shouldShow;
+      if (shouldShow) visibleCount += 1;
+    });
+
+    const noMatch = fieldset.querySelector(".filter-no-match");
+    if (noMatch) noMatch.hidden = visibleCount > 0;
+  }
+
+  function renderFilterModalOptions() {
+    if (!filterOptionsEl) return;
+    filterOptionsEl.innerHTML = "";
+
+    state.filterFields.forEach((field) => {
+      const fieldset = document.createElement("section");
+      fieldset.className = "filter-fieldset";
+      fieldset.dataset.filterKey = field.key;
+
+      const header = document.createElement("div");
+      header.className = "filter-fieldset-header";
+
+      const title = document.createElement("h3");
+      title.textContent = field.label;
+
+      const fieldActions = document.createElement("div");
+      fieldActions.className = "filter-field-actions";
+
+      const selectAll = document.createElement("button");
+      selectAll.type = "button";
+      selectAll.textContent = "すべて";
+      selectAll.addEventListener("click", () => setFieldCheckboxes(field.key, true));
+
+      const selectNone = document.createElement("button");
+      selectNone.type = "button";
+      selectNone.textContent = "解除";
+      selectNone.addEventListener("click", () => setFieldCheckboxes(field.key, false));
+
+      fieldActions.append(selectAll, selectNone);
+      header.append(title, fieldActions);
+      fieldset.appendChild(header);
+
+      const searchWrap = document.createElement("label");
+      searchWrap.className = "filter-search-field";
+      const searchInput = document.createElement("input");
+      searchInput.type = "search";
+      searchInput.autocomplete = "off";
+      searchInput.placeholder = `${field.label}を検索`;
+      searchInput.setAttribute("aria-label", `${field.label}を検索`);
+      searchInput.addEventListener("input", () => filterVisibleOptions(fieldset, searchInput.value));
+      searchWrap.appendChild(searchInput);
+      fieldset.appendChild(searchWrap);
+
+      const list = document.createElement("div");
+      list.className = "filter-option-list";
+
+      const options = state.filterOptions.get(field.key) || [];
+      const selected = state.filters.get(field.key) || new Set();
+      if (options.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "filter-empty";
+        empty.textContent = "選択できる値がありません。";
+        list.appendChild(empty);
+      } else {
+        options.forEach((entry) => list.appendChild(buildFilterOptionCheckbox(field, entry, selected)));
+        const noMatch = document.createElement("p");
+        noMatch.className = "filter-empty filter-no-match";
+        noMatch.textContent = "検索に一致する項目がありません。";
+        noMatch.hidden = true;
+        list.appendChild(noMatch);
+      }
+
+      fieldset.appendChild(list);
+      filterOptionsEl.appendChild(fieldset);
+    });
+  }
+
+  function setFieldCheckboxes(fieldKey, checked) {
+    if (!filterOptionsEl) return;
+    filterOptionsEl.querySelectorAll(`input[type="checkbox"][data-filter-field="${fieldKey}"]`).forEach((input) => {
+      input.checked = checked;
+    });
+  }
+
+  function setAllFilterCheckboxes(checked) {
+    if (!filterOptionsEl) return;
+    filterOptionsEl.querySelectorAll('input[type="checkbox"][data-filter-field]').forEach((input) => {
+      input.checked = checked;
+    });
+  }
+
+  function resetFilterModalCheckboxes() {
+    setAllFilterCheckboxes(true);
+  }
+
+  function readFilterModalSelections() {
+    const filters = new Map();
+    state.filterFields.forEach((field) => filters.set(field.key, new Set()));
+    if (!filterOptionsEl) return filters;
+    filterOptionsEl.querySelectorAll('input[type="checkbox"][data-filter-field]').forEach((input) => {
+      const fieldKey = input.dataset.filterField;
+      const value = input.dataset.filterValue;
+      if (input.checked && filters.has(fieldKey)) {
+        filters.get(fieldKey).add(value);
+      }
+    });
+    return filters;
+  }
+
+  function openFilterModal() {
+    if (!filterModal || !filterOptionsEl || state.rows.length === 0) return;
+    renderFilterModalOptions();
+    filterModal.hidden = false;
+    document.body.classList.add("modal-open");
+    window.setTimeout(() => filterModalCloseButton?.focus(), 0);
+  }
+
+  function closeFilterModal() {
+    if (!filterModal) return;
+    filterModal.hidden = true;
+    document.body.classList.remove("modal-open");
+  }
+
+  function applyFilterModal() {
+    state.filters = readFilterModalSelections();
+    refreshFilteredRows({ save: true, rerender: true, fit: true });
+    closeFilterModal();
+  }
+
+  function updateDataStatus() {
+    const dataset = getActiveDataset();
+    if (!dataset || !state.lastLoadedAt) return;
+    const skipped = Number(state.skippedRows) || 0;
+    const skippedText = skipped > 0 ? `、${skipped}件スキップ` : "";
+    setStatus(`「${dataset.name}」: ${state.filteredRows.length} / ${state.rows.length}件表示${skippedText} / ${state.lastLoadedAt.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })} 更新`);
   }
 
   async function addDataset() {
@@ -657,6 +1006,7 @@
       .replaceAll("'", "&#039;");
   }
 
+  const escapeHTML = escapeHtml;
 
   function isHigherTaxonNotation(text) {
     return /\bord\.|\bfam\.|\bgen\./.test(text);
@@ -1269,20 +1619,24 @@
     try {
       const { rows, headers } = await loadSheetRows(dataset);
       validateHeaders(headers);
+      state.filterFields = buildFilterFields(headers);
 
-      const records = normalizeRows(rows);
+      const records = normalizeRows(rows, headers);
       state.rows = records;
-      assignTaxonColors(records);
+      state.filterOptions = buildFilterOptions(records);
+      state.filters = loadFiltersForActiveDataset(state.filterOptions);
       closePopup();
-      renderTaxonLegend(records);
+      state.filteredRows = applyFiltersToRows(records);
+      assignTaxonColors(state.filteredRows);
+      renderLegends(state.filteredRows);
 
-      await fitBoundsIfNeeded(records);
+      await fitBoundsIfNeeded(state.filteredRows);
       renderMarkers();
 
-      const now = new Date();
-      const skipped = rows.length - records.length;
-      const skippedText = skipped > 0 ? `、${skipped}件スキップ` : "";
-      setStatus(`「${dataset.name}」: ${records.length}件表示${skippedText} / ${now.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })} 更新`);
+      state.lastLoadedAt = new Date();
+      state.skippedRows = rows.length - records.length;
+      updateFilterSummary();
+      updateDataStatus();
       state.hasLoadedOnce = true;
     } catch (error) {
       console.error(error);
@@ -1291,6 +1645,7 @@
 
 ${error.message}`);
     } finally {
+      reloadButton.disabled = false;
       renderDatasetControls();
     }
   }
@@ -1485,12 +1840,18 @@ ${error.message}`);
     }
   }
 
-  function normalizeRows(rows) {
+  function normalizeRows(rows, headers) {
+    const filterHeaders = (headers || []).map(normalizeText).filter(Boolean);
     return rows.map((row, index) => {
       const latitude = parseNumber(row[`__raw_${COLUMNS.latitude}`] ?? row[COLUMNS.latitude]);
       const longitude = parseNumber(row[`__raw_${COLUMNS.longitude}`] ?? row[COLUMNS.longitude]);
+      const filterValues = {};
+      filterHeaders.forEach((header) => {
+        filterValues[header] = normalizeText(row[header]);
+      });
 
       return {
+        __filterValues: filterValues,
         __index: index,
         id: normalizeText(row[COLUMNS.id]),
         taxon: normalizeText(row[COLUMNS.taxon]),
@@ -1518,13 +1879,13 @@ ${error.message}`);
     if (!state.map) {
       return;
     }
-    if (!state.rows.length) {
+    if (!state.filteredRows.length) {
       clearMarkers();
       return;
     }
 
     clearMarkers();
-    const groups = buildMarkerGroups(state.rows);
+    const groups = buildMarkerGroups(state.filteredRows);
     state.markerGroups = groups;
 
     groups.forEach((group) => {
@@ -1608,21 +1969,30 @@ ${error.message}`);
       .map(([taxon, taxonRecords]) => {
         const sortedRecords = [...taxonRecords].sort(compareRecordsForRepresentative);
         const representative = sortedRecords[0];
+        const kind = recordKind(representative.recordType);
+        const hasThisStudyForSameTaxon = taxonRecords.some((record) => recordKind(record.recordType) === "thisStudy");
         return {
           taxon,
           color: colorForTaxon(taxon),
-          kind: recordKind(representative.recordType),
+          kind,
+          hollow: shouldUseHollowMarkerInterior(kind, hasThisStudyForSameTaxon),
           representative
         };
       })
       .sort((a, b) => compareRecordsForRepresentative(a.representative, b.representative));
   }
 
+  function shouldUseHollowMarkerInterior(kind, hasThisStudyForSameTaxon) {
+    if (kind === "literature") return true;
+    if (kind === "type" || kind === "synonymType") return !hasThisStudyForSameTaxon;
+    return false;
+  }
+
   function markerSvg(kind, segmentsOrColor) {
     const segments = normalizeMarkerSegments(segmentsOrColor);
     if (segments.length <= 1) {
-      const segment = segments[0] || { color: "#666666", kind };
-      return singleColorMarkerSvg(segment.kind || kind, segment.color || "#666666");
+      const segment = segments[0] || { color: "#666666", kind, hollow: false };
+      return singleColorMarkerSvg(segment.kind || kind, segment.color || "#666666", Boolean(segment.hollow));
     }
     return splitColorMarkerSvg(kind, segments);
   }
@@ -1639,25 +2009,46 @@ ${error.message}`);
       return {
         color: item?.color || "#666666",
         kind: item?.kind || "other",
+        hollow: Boolean(item?.hollow),
         taxon: item?.taxon || "",
         representative: item?.representative || null
       };
     }).filter((item) => item.color);
   }
 
-  function singleColorMarkerSvg(kind, color) {
+  function singleColorMarkerSvg(kind, color, hollow = false) {
     const stroke = "rgba(0,0,0,0.72)";
     const white = "rgba(255,255,255,0.94)";
+    const innerStroke = "rgba(0,0,0,0.18)";
 
     if (kind === "type") {
+      const starPoints = "12,1.6 14.8,8.4 22.1,8.9 16.5,13.6 18.2,20.8 12,17 5.8,20.8 7.5,13.6 1.9,8.9 9.2,8.4";
+      const innerStarTransform = "translate(12 12) scale(0.50) translate(-12 -12)";
+      if (hollow) {
+        return `
+          <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+            <polygon points="${starPoints}" fill="${color}" stroke="${stroke}" stroke-width="1.4" />
+            <polygon points="${starPoints}" transform="${innerStarTransform}"
+              fill="${white}" stroke="${innerStroke}" stroke-width="0.45" />
+          </svg>`;
+      }
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-          <polygon points="12,1.6 14.8,8.4 22.1,8.9 16.5,13.6 18.2,20.8 12,17 5.8,20.8 7.5,13.6 1.9,8.9 9.2,8.4"
+          <polygon points="${starPoints}"
             fill="${color}" stroke="${stroke}" stroke-width="1.4" />
         </svg>`;
     }
 
     if (kind === "synonymType") {
+      if (hollow) {
+        return `
+          <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+            <rect x="5" y="5" width="14" height="14" rx="1.8"
+              fill="${color}" stroke="${stroke}" stroke-width="1.7" />
+            <rect x="8.3" y="8.3" width="7.4" height="7.4" rx="1.0"
+              fill="${white}" stroke="${innerStroke}" stroke-width="0.45" />
+          </svg>`;
+      }
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
           <rect x="5" y="5" width="14" height="14" rx="1.8"
@@ -1668,16 +2059,16 @@ ${error.message}`);
     if (kind === "literature") {
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-          <circle cx="12" cy="12" r="7.3"
-            fill="${white}" stroke="${color}" stroke-width="3.2" />
-          <circle cx="12" cy="12" r="9.1"
-            fill="none" stroke="${stroke}" stroke-width="0.9" />
+          <circle cx="12" cy="12" r="8.2"
+            fill="${color}" stroke="${stroke}" stroke-width="1.7" />
+          <circle cx="12" cy="12" r="4.5"
+            fill="${white}" stroke="${innerStroke}" stroke-width="0.45" />
         </svg>`;
     }
 
     return `
       <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-        <circle cx="12" cy="12" r="7.8"
+        <circle cx="12" cy="12" r="8.2"
           fill="${color}" stroke="${stroke}" stroke-width="1.7" />
       </svg>`;
   }
@@ -1693,11 +2084,12 @@ ${error.message}`);
 
     if (kind === "type") {
       const starPoints = "12,1.6 14.8,8.4 22.1,8.9 16.5,13.6 18.2,20.8 12,17 5.8,20.8 7.5,13.6 1.9,8.9 9.2,8.4";
+      const innerStarTransform = "translate(12 12) scale(0.50) translate(-12 -12)";
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
           <defs>
             <clipPath id="${clipId}"><polygon points="${starPoints}" /></clipPath>
-            <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="5.6" /></clipPath>
+            <clipPath id="${innerClipId}"><polygon points="${starPoints}" transform="${innerStarTransform}" /></clipPath>
           </defs>
           ${slices}
           ${hollowSlices}
@@ -1710,7 +2102,7 @@ ${error.message}`);
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
           <defs>
             <clipPath id="${clipId}"><rect x="5" y="5" width="14" height="14" rx="1.8" /></clipPath>
-            <clipPath id="${innerClipId}"><rect x="8" y="8" width="8" height="8" rx="1.1" /></clipPath>
+            <clipPath id="${innerClipId}"><rect x="8.3" y="8.3" width="7.4" height="7.4" rx="1.0" /></clipPath>
           </defs>
           ${slices}
           ${hollowSlices}
@@ -1722,13 +2114,13 @@ ${error.message}`);
       return `
         <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
           <defs>
-            <clipPath id="${clipId}"><circle cx="12" cy="12" r="9.2" /></clipPath>
-            <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="5.5" /></clipPath>
+            <clipPath id="${clipId}"><circle cx="12" cy="12" r="8.2" /></clipPath>
+            <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="4.5" /></clipPath>
           </defs>
           ${slices}
           ${radialHollowSlices(segmentList.map((segment) => ({ ...segment, kind: "literature" })), innerClipId, innerWhite)}
-          <circle cx="12" cy="12" r="5.5" fill="none" stroke="${stroke}" stroke-width="0.8" />
-          <circle cx="12" cy="12" r="9.2" fill="none" stroke="${stroke}" stroke-width="1.1" />
+          <circle cx="12" cy="12" r="4.5" fill="none" stroke="${stroke}" stroke-width="0.45" />
+          <circle cx="12" cy="12" r="8.2" fill="none" stroke="${stroke}" stroke-width="1.9" />
         </svg>`;
     }
 
@@ -1736,17 +2128,18 @@ ${error.message}`);
       <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
         <defs>
           <clipPath id="${clipId}"><circle cx="12" cy="12" r="8.2" /></clipPath>
-          <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="4.9" /></clipPath>
+          <clipPath id="${innerClipId}"><circle cx="12" cy="12" r="4.5" /></clipPath>
         </defs>
         ${slices}
         ${hollowSlices}
-        <circle cx="12" cy="12" r="4.9" fill="none" stroke="rgba(0,0,0,0.22)" stroke-width="0.45" />
+        <circle cx="12" cy="12" r="4.5" fill="none" stroke="rgba(0,0,0,0.22)" stroke-width="0.45" />
         <circle cx="12" cy="12" r="8.2" fill="none" stroke="${stroke}" stroke-width="1.9" />
       </svg>`;
   }
 
-  function isHollowMarkerSegment(kind) {
-    return kind === "literature";
+  function isHollowMarkerSegment(segment) {
+    if (segment && typeof segment === "object") return Boolean(segment.hollow);
+    return segment === "literature";
   }
 
   function radialColorSlices(segments, clipId) {
@@ -1762,7 +2155,7 @@ ${error.message}`);
   function radialHollowSlices(segments, innerClipId, fillColor) {
     const paths = radialSlicePaths(segments.length);
     return segments.map((segment, index) => {
-      if (!isHollowMarkerSegment(segment.kind)) {
+      if (!isHollowMarkerSegment(segment)) {
         return "";
       }
       return `<path d="${paths[index]}" fill="${fillColor}" clip-path="url(#${innerClipId})" />`;
@@ -2032,9 +2425,46 @@ ${error.message}`);
     return parts.join("-");
   }
 
+  function renderLegends(records) {
+    renderRecordTypeLegend(records);
+    renderTaxonLegend(records);
+  }
+
+  function renderRecordTypeLegend(records) {
+    if (!recordTypeLegendEl) return;
+
+    const visibleKinds = new Set(records.map((record) => recordKind(record.recordType)));
+    const items = RECORD_TYPE_LEGEND_ITEMS.filter((item) => visibleKinds.has(item.kind));
+
+    if (!items.length) {
+      recordTypeLegendEl.innerHTML = '<div class="legend-row legend-empty">表示中の記録はありません</div>';
+      return;
+    }
+
+    recordTypeLegendEl.innerHTML = items.map((item) => `
+      <div class="legend-row">
+        <span class="legend-symbol ${legendSymbolClassForKind(item.kind)}"></span>${escapeHTML(item.label)}
+      </div>`).join("");
+  }
+
+  function legendSymbolClassForKind(kind) {
+    if (kind === "type") return "star";
+    if (kind === "synonymType") return "square";
+    if (kind === "literature") return "hollow";
+    if (kind === "thisStudy") return "filled";
+    return "filled unknown";
+  }
+
   function renderTaxonLegend(records) {
+    if (!taxonLegendEl) return;
+
     const taxa = [...new Set(records.map((record) => taxonKey(record.taxon)))]
       .sort((a, b) => a.localeCompare(b, "ja"));
+
+    if (!taxa.length) {
+      taxonLegendEl.innerHTML = '<div class="taxon-row legend-empty">表示中の分類群はありません</div>';
+      return;
+    }
 
     taxonLegendEl.innerHTML = taxa.map((taxon) => `
       <div class="taxon-row">
@@ -2094,6 +2524,9 @@ ${error.message}`);
     if (event.key === "Escape" && registerModal && !registerModal.hidden) {
       closeRegisterModal();
     }
+    if (event.key === "Escape" && filterModal && !filterModal.hidden) {
+      closeFilterModal();
+    }
   });
 
   if (datasetSelect) {
@@ -2121,6 +2554,18 @@ ${error.message}`);
   if (registerModal) {
     registerModal.addEventListener("click", (event) => {
       if (event.target === registerModal) closeRegisterModal();
+    });
+  }
+  if (filterButton) filterButton.addEventListener("click", openFilterModal);
+  if (filterModalCloseButton) filterModalCloseButton.addEventListener("click", closeFilterModal);
+  if (filterModalCancelButton) filterModalCancelButton.addEventListener("click", closeFilterModal);
+  if (filterApplyButton) filterApplyButton.addEventListener("click", applyFilterModal);
+  if (filterSelectAllButton) filterSelectAllButton.addEventListener("click", () => setAllFilterCheckboxes(true));
+  if (filterSelectNoneButton) filterSelectNoneButton.addEventListener("click", () => setAllFilterCheckboxes(false));
+  if (filterResetButton) filterResetButton.addEventListener("click", resetFilterModalCheckboxes);
+  if (filterModal) {
+    filterModal.addEventListener("click", (event) => {
+      if (event.target === filterModal) closeFilterModal();
     });
   }
   if (helpButton) helpButton.addEventListener("click", openHelpModal);

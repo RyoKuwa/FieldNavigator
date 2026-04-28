@@ -12,6 +12,7 @@ window.FIELD_MAP_CONFIG = {
   // 端末内保存に使うキー。通常は変更不要です。
   LOCAL_DATASETS_STORAGE_KEY: "fieldMap.localDatasets.v1",
   ACTIVE_DATASET_STORAGE_KEY: "fieldMap.activeDatasetId.v1",
+  FILTERS_STORAGE_KEY_PREFIX: "fieldMap.filters.v1",
 
   // 初期表示。AUTO_FIT_BOUNDS が true の場合、読み込み後に全地点へ自動ズームします。
   START_CENTER: [133.0, 33.7], // [longitude, latitude]

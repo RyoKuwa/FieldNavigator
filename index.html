@@ -47,6 +47,13 @@
             <button id="reload-button" type="button">更新</button>
           </div>
         </section>
+        <section class="menu-section filter-section" aria-labelledby="filter-section-title">
+          <div id="filter-section-title" class="menu-section-title">フィルター</div>
+          <div class="control-row filter-row">
+            <button id="filter-button" type="button">フィルター</button>
+            <div id="filter-summary" class="filter-summary" aria-live="polite">表示中: 0 / 0件</div>
+          </div>
+        </section>
         <section class="menu-section help-section" aria-labelledby="help-section-title">
           <div id="help-section-title" class="menu-section-title">ヘルプ</div>
           <div class="control-row help-row">
@@ -64,10 +71,7 @@
         <summary>凡例</summary>
         <div class="legend-block">
           <div class="legend-title">記録の種類</div>
-          <div class="legend-row"><span class="legend-symbol star"></span>タイプ産地</div>
-          <div class="legend-row"><span class="legend-symbol square"></span>シノニマイズされた種のタイプ産地</div>
-          <div class="legend-row"><span class="legend-symbol hollow"></span>文献記録</div>
-          <div class="legend-row"><span class="legend-symbol filled"></span>本調査</div>
+          <div id="record-type-legend"></div>
         </div>
         <div class="legend-block">
           <div class="legend-title">分類群</div>
@@ -165,6 +169,16 @@
           </section>
 
           <section class="help-content-section">
+            <h3>フィルター</h3>
+            <p>スプレッドシートの各項目ごとに、表示する記録を絞り込めます。</p>
+            <p>各項目は1列で表示され、検索欄から値を探してチェックの有無を調整できます。列が増減した場合も、読み込んだヘッダーに合わせてフィルター項目が作られます。</p>
+            <p>同じ項目内では複数選択ができます。異なる項目を同時に指定した場合は、すべての条件に合う記録だけを表示します。</p>
+            <p>フィルター適用後の記録だけで、分類群の色、近接マーカー、分割表示、凡例を再計算します。</p>
+            <p>分類群の色は現在表示中の記録に基づいて自動で割り当てます。フィルター条件を変更すると、同じ分類群でも色が変わることがあります。</p>
+            <p>フィルターは調査ごとにこの端末へ保存されます。</p>
+          </section>
+
+          <section class="help-content-section">
             <h3>必要な列</h3>
             <p>必須ヘッダーは <code>記録ID</code>, <code>同定</code>, <code>記録の種類</code>, <code>Latitude</code>, <code>Longitude</code> です。</p>
             <p>推奨ヘッダーは次の通りです。</p>
@@ -178,6 +192,28 @@
         </div>
         <div class="modal-actions">
           <button id="help-modal-cancel" type="button" class="primary-button">閉じる</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="filter-modal" class="modal-overlay" hidden>
+      <div class="modal-panel filter-modal-panel" role="dialog" aria-modal="true" aria-labelledby="filter-modal-title">
+        <div class="modal-header">
+          <h2 id="filter-modal-title">フィルター</h2>
+          <button id="filter-modal-close" class="modal-close-button" type="button" aria-label="閉じる">×</button>
+        </div>
+        <div class="modal-body filter-modal-body">
+          <p class="modal-note">チェックした値を含む記録だけを表示します。検索欄で項目を絞り込み、チェックの有無を調整できます。同じ項目内はOR条件、異なる項目間はAND条件です。</p>
+          <div class="filter-toolbar" aria-label="フィルター操作">
+            <button id="filter-select-all-button" type="button" class="secondary-button compact-button">すべて選択</button>
+            <button id="filter-select-none-button" type="button" class="secondary-button compact-button">すべて解除</button>
+            <button id="filter-reset-button" type="button" class="secondary-button compact-button">リセット</button>
+          </div>
+          <div id="filter-options" class="filter-options"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="filter-modal-cancel" type="button" class="secondary-button">キャンセル</button>
+          <button id="filter-apply-button" type="button" class="primary-button">適用</button>
         </div>
       </div>
     </div>
